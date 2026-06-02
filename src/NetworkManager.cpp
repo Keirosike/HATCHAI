@@ -143,6 +143,18 @@ String NetworkManager::connectToWifi(const String& ssid, const String& password)
   return json;
 }
 
+String NetworkManager::forgetWifi() {
+  Preferences preferences;
+  preferences.begin("hatchai-wifi", false);
+  preferences.remove("ssid");
+  preferences.remove("password");
+  preferences.end();
+
+  WiFi.disconnect(false);
+
+  return "{\"forgotten\":true,\"message\":\"Saved Wi-Fi credentials removed\"}";
+}
+
 bool NetworkManager::shouldUseStationMode() const {
   const String ssid = HatchConfig::WifiSsid;
 

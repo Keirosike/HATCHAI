@@ -9,6 +9,7 @@ public:
   String ipAddress() const;
   String scanNetworksJson();
   String connectToWifi(const String& ssid, const String& password);
+  String forgetWifi();
 
 private:
   bool shouldUseStationMode() const;

@@ -30,6 +30,42 @@ document.addEventListener("DOMContentLoaded", () => {
     return username === validUsername && password === validPassword;
   }
 
+  function saveLocalCredentials(username, password) {
+    window.HatchStorage?.set("hatchaiAccount", {
+      fullName: "Admin User",
+      username
+    });
+    window.HatchStorage?.set("hatchaiPassword", password);
+  }
+
+  async function startLocalSession(username, password) {
+    if (!validateLogin(username, password)) {
+      showStatus("Invalid username or password.", "error");
+      return false;
+    }
+
+    await window.HatchAuthSession.saveAccount(username, password);
+
+    const session = await window.HatchAuthSession.start(username, password);
+
+    if (session.ok) {
+      saveLocalCredentials(username, password);
+      return true;
+    }
+
+    if (!session.available) {
+      const localSession = window.HatchAuthSession.startLocal(username);
+
+      if (localSession.ok) {
+        saveLocalCredentials(username, password);
+        return true;
+      }
+    }
+
+    showStatus(session.message || "Cannot start login session.", "error");
+    return false;
+  }
+
   loginForm.addEventListener("submit", async event => {
     event.preventDefault();
 
@@ -43,16 +79,23 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (!validateLogin(username, password)) {
-      showStatus("Invalid username or password.", "error");
-      return;
-    }
-
-    const session = await window.HatchAuthSession.start(username);
+    const session = await window.HatchAuthSession.start(username, password);
 
     if (!session.ok) {
-      showStatus(session.message, "error");
-      return;
+      const canUseLocalFallback = !session.available || session.status === 401;
+      const fallbackStarted = canUseLocalFallback
+        ? await startLocalSession(username, password)
+        : false;
+
+      if (!fallbackStarted) {
+        if (!canUseLocalFallback) {
+          showStatus(session.message, "error");
+        }
+
+        return;
+      }
+    } else {
+      saveLocalCredentials(username, password);
     }
 
     showStatus("Login successful. Redirecting...", "success");

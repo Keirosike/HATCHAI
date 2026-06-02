@@ -541,6 +541,14 @@ document.addEventListener("DOMContentLoaded", function () {
     setText("summaryRelay", data.summaryRelay || "Manual");
     setText("summaryTurning", data.summaryTurning || "Manual");
     setText("lastTurnValue", data.lastTurn || "None");
+    setText("turnsTodayValue", String(data.turnsToday ?? 0));
+    setText("totalTurnsValue", String(data.totalTurns ?? 0));
+    setText(
+      "actualTurnIntervalValue",
+      data.actualTurnIntervalMinutes
+        ? data.actualTurnIntervalMinutes + " min"
+        : "Not measured"
+    );
     setText("lastAnomalyValue", data.lastAnomaly || "None");
     setText("sensorStatusValue", data.sensorStatus || "No reading");
     setText("rtcValue", data.clockStatus || "Not detected");
@@ -616,6 +624,9 @@ document.addEventListener("DOMContentLoaded", function () {
       summaryRelay: "Automatic",
       summaryTurning: "Enabled",
       lastTurn: "09:20 AM",
+      turnsToday: 0,
+      totalTurns: 0,
+      actualTurnIntervalMinutes: 0,
       lastAnomaly: "None",
       sensorStatus: "Connected",
       clockStatus: "Ready",

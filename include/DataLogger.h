@@ -15,6 +15,7 @@ public:
     const String& timestamp,
     const SensorReading& reading,
     const ControlSettings& settings,
+    const EggTurningMetrics& turningMetrics,
     bool bulb1On,
     bool bulb2On,
     bool fanOn,
@@ -22,6 +23,7 @@ public:
   );
 
 private:
+  String csvHeader() const;
   void writeHeaderIfNeeded();
 
   uint8_t _csPin;

@@ -6,6 +6,7 @@ function getWifiElements() {
     wifiNetworkList: document.getElementById("wifiNetworkList"),
     scanWifiBtn: document.getElementById("scanWifiBtn"),
     connectWifiBtn: document.getElementById("connectWifiBtn"),
+    forgetWifiBtn: document.getElementById("forgetWifiBtn"),
     wifiSsid: document.getElementById("wifiSsid"),
     wifiPassword: document.getElementById("wifiPassword"),
     toggleWifiPassword: document.getElementById("toggleWifiPassword"),
@@ -164,10 +165,11 @@ function renderWifiNetworks(networks, baseUrl, setStatus) {
 }
 
 function selectWifiNetwork(network, button, baseUrl, setStatus) {
-  const { wifiSsid } = getWifiElements();
+  const { wifiSsid, wifiPassword } = getWifiElements();
   const ssid = network.ssid || "Hidden Network";
   const signal = network.rssi !== undefined ? network.rssi + " dBm" : "Signal unknown";
   const server = baseUrl.replace("http://", "");
+  const savedWifi = loadData(WIFI_KEY, {});
 
   document.querySelectorAll("#wifiNetworkList button").forEach(item => {
     item.classList.remove("selected");
@@ -179,9 +181,14 @@ function selectWifiNetwork(network, button, baseUrl, setStatus) {
     wifiSsid.value = ssid;
   }
 
+  if (wifiPassword && savedWifi.ssid === ssid && savedWifi.password) {
+    wifiPassword.value = savedWifi.password;
+  }
+
   setEspWifiState("Selected", "status-warning", server, signal);
 
   saveData(WIFI_KEY, {
+    ...savedWifi,
     ssid,
     signal,
     server,
@@ -226,16 +233,13 @@ async function connectSelectedWifi(setStatus) {
       setEspWifiState("Connected", "status-ok", server, savedWifi.signal || "Connected");
       saveData(WIFI_KEY, {
         ssid,
+        password,
         signal: savedWifi.signal || "Connected",
         server,
         baseUrl,
         selected: true,
         connected: true
       });
-
-      if (wifiPassword) {
-        wifiPassword.value = "";
-      }
 
       setWifiStatus(setStatus, "ESP32 connected to " + ssid + ".", "#16A34A");
       return true;
@@ -256,10 +260,14 @@ function loadSavedWifi() {
     return;
   }
 
-  const { wifiSsid } = getWifiElements();
+  const { wifiSsid, wifiPassword } = getWifiElements();
 
   if (wifiSsid) {
     wifiSsid.value = savedWifi.ssid || "";
+  }
+
+  if (wifiPassword) {
+    wifiPassword.value = savedWifi.password || "";
   }
 
   setEspWifiState(
@@ -271,17 +279,34 @@ function loadSavedWifi() {
 }
 
 function saveWifiStatus() {
-  const { wifiSsid } = getWifiElements();
+  const { wifiSsid, wifiPassword } = getWifiElements();
   const savedWifi = loadData(WIFI_KEY, {});
 
   saveData(WIFI_KEY, {
     ...savedWifi,
     ssid: wifiSsid?.value.trim() || savedWifi.ssid || "",
+    password: wifiPassword?.value || savedWifi.password || "",
     selected: Boolean(wifiSsid?.value.trim() || savedWifi.selected)
   });
 }
 
-function resetWifiState() {
+async function forgetWifiOnEsp32() {
+  const savedWifi = loadData(WIFI_KEY, {});
+
+  for (const baseUrl of getEsp32Urls(savedWifi.baseUrl)) {
+    try {
+      await fetch(baseUrl + "/api/wifi/forget", {
+        method: "POST",
+        cache: "no-store"
+      });
+      return;
+    } catch (error) {
+      continue;
+    }
+  }
+}
+
+function resetWifiState(message = "Saved Wi-Fi was forgotten.") {
   const { wifiNetworkList, wifiSsid, wifiPassword } = getWifiElements();
 
   if (wifiNetworkList) {
@@ -298,9 +323,15 @@ function resetWifiState() {
   }
 
   setWifiPasswordVisible(false);
-  setWifiStatus(null, "No Wi-Fi action yet.", "#6B7280");
+  setWifiStatus(null, message, "#2563EB");
   setEspWifiState("Disconnected", "status-alert", "---", "---");
   removeData(WIFI_KEY);
+}
+
+async function forgetWifi() {
+  setWifiStatus(null, "Forgetting saved Wi-Fi credentials...", "#D97706");
+  await forgetWifiOnEsp32();
+  resetWifiState("Saved Wi-Fi credentials removed.");
 }
 
 function setWifiPasswordVisible(isVisible) {
@@ -326,7 +357,12 @@ function statusSetter(message, color) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const { scanWifiBtn, connectWifiBtn, toggleWifiPassword } = getWifiElements();
+  const {
+    scanWifiBtn,
+    connectWifiBtn,
+    forgetWifiBtn,
+    toggleWifiPassword
+  } = getWifiElements();
 
   scanWifiBtn?.addEventListener("click", () => {
     scanWifiNetworks(statusSetter);
@@ -334,6 +370,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   connectWifiBtn?.addEventListener("click", () => {
     connectSelectedWifi(statusSetter);
+  });
+
+  forgetWifiBtn?.addEventListener("click", () => {
+    forgetWifi();
   });
 
   toggleWifiPassword?.addEventListener("click", () => {
@@ -349,5 +389,6 @@ window.HatchWifi = {
   setEspWifiState,
   saveWifiStatus,
   loadSavedWifi,
-  resetWifiState
+  resetWifiState,
+  forgetWifi
 };

@@ -13,3 +13,10 @@ struct ControlSettings {
   float targetHumidityPercent = HatchConfig::DefaultTargetHumidityPercent;
   uint16_t turnIntervalMinutes = HatchConfig::DefaultTurnIntervalMinutes;
 };
+
+struct EggTurningMetrics {
+  uint32_t totalTurns = 0;
+  uint16_t turnsToday = 0;
+  uint16_t actualTurnIntervalMinutes = 0;
+  String lastTurnTimestamp = "None";
+};

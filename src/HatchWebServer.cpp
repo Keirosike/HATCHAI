@@ -1,9 +1,14 @@
 #include "HatchWebServer.h"
 #include <FS.h>
+#include <Preferences.h>
 #include <SPIFFS.h>
+#include "JsonBuilder.h"
 
 namespace {
 constexpr unsigned long SessionTimeoutMs = 90000;
+const char* AccountNamespace = "hatchai";
+const char* DefaultUsername = "admin";
+const char* DefaultPassword = "1234";
 }
 
 HatchWebServer::HatchWebServer(
@@ -27,6 +32,9 @@ void HatchWebServer::registerRoutes() {
   _server.on("/api/control", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/turn", HTTP_POST, [this]() { handleApiTurn(); });
   _server.on("/api/turn", HTTP_OPTIONS, [this]() { handleOptions(); });
+  _server.on("/api/account", HTTP_GET, [this]() { handleAccountGet(); });
+  _server.on("/api/account", HTTP_POST, [this]() { handleAccountSave(); });
+  _server.on("/api/account", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/session/start", HTTP_POST, [this]() { handleSessionStart(); });
   _server.on("/api/session/start", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/session/keepalive", HTTP_POST, [this]() { handleSessionKeepAlive(); });
@@ -41,6 +49,8 @@ void HatchWebServer::registerRoutes() {
   _server.on("/api/wifi/scan", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/wifi/connect", HTTP_POST, [this]() { handleWifiConnect(); });
   _server.on("/api/wifi/connect", HTTP_OPTIONS, [this]() { handleOptions(); });
+  _server.on("/api/wifi/forget", HTTP_POST, [this]() { handleWifiForget(); });
+  _server.on("/api/wifi/forget", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/connect-wifi", HTTP_POST, [this]() { handleWifiConnect(); });
   _server.on("/connect-wifi", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.onNotFound([this]() { handleStaticFile(); });
@@ -75,16 +85,48 @@ void HatchWebServer::handleApiTurn() {
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
 }
 
+void HatchWebServer::handleAccountGet() {
+  sendJson("{\"username\":" + HatchJson::quote(storedUsername()) + "}");
+}
+
+void HatchWebServer::handleAccountSave() {
+  const String username = _server.hasArg("username") ? _server.arg("username") : "";
+  const String password = _server.hasArg("password") ? _server.arg("password") : "";
+
+  if (username.length() == 0) {
+    sendJson("{\"ok\":false,\"message\":\"Username is required\"}", 400);
+    return;
+  }
+
+  Preferences preferences;
+  preferences.begin(AccountNamespace, false);
+  preferences.putString("user", username);
+
+  if (password.length() > 0) {
+    preferences.putString("pass", password);
+  }
+
+  preferences.end();
+
+  sendJson("{\"ok\":true,\"username\":" + HatchJson::quote(username) + "}");
+}
+
 void HatchWebServer::handleSessionStart() {
   const String token = _server.hasArg("token") ? _server.arg("token") : "";
   const String username = _server.hasArg("username") ? _server.arg("username") : "user";
+  const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
   if (token.length() < 8) {
     sendJson("{\"ok\":false,\"message\":\"Invalid session token\"}", 400);
     return;
   }
 
-  if (hasActiveSession() && _sessionToken != token) {
+  if (password.length() > 0 && !credentialsValid(username, password)) {
+    sendJson("{\"ok\":false,\"message\":\"Invalid username or password\"}", 401);
+    return;
+  }
+
+  if (hasActiveSession() && _sessionToken != token && _sessionUsername != username) {
     sendJson(
       "{\"ok\":false,\"locked\":true,\"message\":\"Another user is already logged in\"}",
       409
@@ -145,6 +187,10 @@ void HatchWebServer::handleWifiConnect() {
   sendJson(_network.connectToWifi(ssid, password));
 }
 
+void HatchWebServer::handleWifiForget() {
+  sendJson(_network.forgetWifi());
+}
+
 void HatchWebServer::handleOptions() {
   addCorsHeaders();
   _server.send(204);
@@ -154,11 +200,11 @@ void HatchWebServer::handleStaticFile() {
   String path = _server.uri();
 
   if (path == "/") {
-    path = "/dashboard.html";
+    path = "/index.html";
   }
 
   if (path.endsWith("/")) {
-    path += "dashboard.html";
+    path += "index.html";
   }
 
   if (!SPIFFS.exists(path)) {
@@ -256,6 +302,26 @@ uint16_t HatchWebServer::parseMinutesArg(
   }
 
   return static_cast<uint16_t>(minutes);
+}
+
+bool HatchWebServer::credentialsValid(const String& username, const String& password) {
+  return username == storedUsername() && password == storedPassword();
+}
+
+String HatchWebServer::storedUsername() {
+  Preferences preferences;
+  preferences.begin(AccountNamespace, true);
+  const String username = preferences.getString("user", DefaultUsername);
+  preferences.end();
+  return username;
+}
+
+String HatchWebServer::storedPassword() {
+  Preferences preferences;
+  preferences.begin(AccountNamespace, true);
+  const String password = preferences.getString("pass", DefaultPassword);
+  preferences.end();
+  return password;
 }
 
 bool HatchWebServer::hasActiveSession() const {

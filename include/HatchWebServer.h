@@ -17,12 +17,15 @@ private:
   void handleApiData();
   void handleApiControl();
   void handleApiTurn();
+  void handleAccountGet();
+  void handleAccountSave();
   void handleSessionStart();
   void handleSessionKeepAlive();
   void handleSessionEnd();
   void handleSessionStatus();
   void handleWifiScan();
   void handleWifiConnect();
+  void handleWifiForget();
   void handleOptions();
   void handleStaticFile();
   void sendJson(const String& payload, int statusCode = 200);
@@ -33,6 +36,9 @@ private:
   bool parseBoolArg(const String& name, bool fallback);
   float parseFloatArg(const String& name, float fallback);
   uint16_t parseMinutesArg(const String& name, uint16_t fallback);
+  bool credentialsValid(const String& username, const String& password);
+  String storedUsername();
+  String storedPassword();
   bool hasActiveSession() const;
   void refreshSession(const String& token, const String& username);
 

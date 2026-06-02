@@ -85,7 +85,42 @@ const HatchAuthSession = (() => {
     }
   }
 
-  async function start(username) {
+  async function start(username, password = "") {
+    if (isLockedByAnotherClient()) {
+      return {
+        ok: false,
+        available: false,
+        message: "Another session is already logged in. Logout first or wait for it to expire."
+      };
+    }
+
+    const token = getClientId();
+    const result = await postSession("/api/session/start", { token, username, password });
+
+    if (result.available && !result.ok) {
+      return {
+        ok: false,
+        available: true,
+        status: result.status,
+        message: result.payload?.message || "Another user is already logged in."
+      };
+    }
+
+    if (!result.available) {
+      return {
+        ok: false,
+        available: false,
+        message: "ESP32 session API is not available."
+      };
+    }
+
+    saveSession(username);
+    startHeartbeat();
+
+    return { ok: true, available: true };
+  }
+
+  function startLocal(username) {
     if (isLockedByAnotherClient()) {
       return {
         ok: false,
@@ -93,20 +128,19 @@ const HatchAuthSession = (() => {
       };
     }
 
-    const token = getClientId();
-    const result = await postSession("/api/session/start", { token, username });
-
-    if (result.available && !result.ok) {
-      return {
-        ok: false,
-        message: result.payload?.message || "Another user is already logged in."
-      };
-    }
-
     saveSession(username);
     startHeartbeat();
-
     return { ok: true };
+  }
+
+  async function saveAccount(username, password = "") {
+    const body = { username };
+
+    if (password) {
+      body.password = password;
+    }
+
+    return postSession("/api/account", body);
   }
 
   async function keepAlive() {
@@ -158,7 +192,13 @@ const HatchAuthSession = (() => {
   }
 
   function requireLogin() {
-    if (isLoginPage()) return;
+    if (isLoginPage()) {
+      if (isOwnSessionActive()) {
+        window.location.href = "dashboard.html";
+      }
+
+      return;
+    }
 
     if (!isOwnSessionActive()) {
       window.location.href = LOGIN_PAGE;
@@ -173,6 +213,8 @@ const HatchAuthSession = (() => {
 
   return {
     start,
+    startLocal,
+    saveAccount,
     logout,
     requireLogin,
     isOwnSessionActive

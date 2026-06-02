@@ -40,8 +40,14 @@ private:
   void updateTurnerPulse(uint32_t nowMs);
   void maybeStartScheduledTurn(uint32_t nowMs);
   void refreshDisplayIfDue(uint32_t nowMs);
+  void loadTurnMetrics();
+  void persistTurnMetrics() const;
+  void refreshTurnMetricsDate();
+  void recordTurnEvent(uint32_t nowMs);
+  String turnDateKey() const;
 
-  int predictedHatchDay() const;
+  int incubationDay() const;
+  int predictedDaysRemaining() const;
   String predictedHatchDateText() const;
   String predictedHatchDateIso() const;
   DateTimeValue addDays(const DateTimeValue& date, int days) const;
@@ -62,6 +68,7 @@ private:
   LcdStatusDisplay& _display;
   ReadingHistory _history;
   ControlSettings _settings;
+  EggTurningMetrics _turningMetrics;
   SensorReading _currentReading;
   bool _hasReadSensor = false;
   bool _hasTurned = false;
@@ -71,6 +78,7 @@ private:
   uint32_t _lastTurnMs = 0;
   uint32_t _turnerStopMs = 0;
   String _networkStatus = "Offline";
+  String _turnMetricsDateKey;
   String _lastReadingTimestamp = "Not set";
   String _lastAnomaly = "None";
 };

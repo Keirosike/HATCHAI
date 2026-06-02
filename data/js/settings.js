@@ -50,12 +50,23 @@ const HatchSettings = {
     };
   },
 
+  syncRemoteAccount(account, password) {
+    if (!window.HatchAuthSession?.saveAccount) return;
+
+    HatchAuthSession.saveAccount(account.username, password).then(result => {
+      if (result.available && !result.ok) {
+        this.showToast("ESP32 account sync failed.", "warning");
+      }
+    });
+  },
+
   saveAccount(options = {}) {
     const account = this.getAccountData();
     const { showSuccess = true } = options;
 
     const newPassword = HatchApp.getValue("newPassword");
     const confirmPassword = HatchApp.getValue("confirmPassword");
+    const savedPassword = HatchStorage.get("hatchaiPassword", "");
 
     if (!account.fullName || !account.username) {
       this.setStatus("Please complete full name and username.", "#DC2626", "warning");
@@ -77,6 +88,7 @@ const HatchSettings = {
     }
 
     HatchStorage.set("hatchaiAccount", account);
+    this.syncRemoteAccount(account, newPassword || savedPassword);
 
     HatchApp.setValue("newPassword", "");
     HatchApp.setValue("confirmPassword", "");
@@ -98,6 +110,7 @@ const HatchSettings = {
 
     HatchStorage.remove("hatchaiAccount");
     HatchStorage.remove("hatchaiPassword");
+    this.syncRemoteAccount(DEFAULT_ACCOUNT, "1234");
 
     this.updateAccountDisplay();
     this.setStatus("Account reset to default.", "#2563EB", "info");
