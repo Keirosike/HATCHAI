@@ -29,6 +29,25 @@ bool DhtSensor::waitForLevel(uint8_t level, uint32_t timeoutMicros) const {
 }
 
 SensorReading DhtSensor::read() {
+  SensorReading lastReading;
+
+  for (uint8_t attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      delay(80);
+    }
+
+    lastReading = readOnce();
+
+    if (lastReading.valid) {
+      _latest = lastReading;
+      return lastReading;
+    }
+  }
+
+  return lastReading;
+}
+
+SensorReading DhtSensor::readOnce() {
   SensorReading reading;
   reading.timestampMs = millis();
 
@@ -40,30 +59,37 @@ SensorReading DhtSensor::read() {
   pinMode(_pin, INPUT_PULLUP);
   delayMicroseconds(40);
 
-  if (!waitForLevel(LOW, 100)) {
+  noInterrupts();
+
+  if (!waitForLevel(LOW, 160)) {
+    interrupts();
     reading.error = "DHT sensor did not respond";
     return reading;
   }
 
-  if (!waitForLevel(HIGH, 100)) {
+  if (!waitForLevel(HIGH, 160)) {
+    interrupts();
     reading.error = "DHT response low pulse timed out";
     return reading;
   }
 
-  if (!waitForLevel(LOW, 100)) {
+  if (!waitForLevel(LOW, 160)) {
+    interrupts();
     reading.error = "DHT response high pulse timed out";
     return reading;
   }
 
   for (uint8_t bitIndex = 0; bitIndex < 40; bitIndex++) {
-    if (!waitForLevel(HIGH, 80)) {
+    if (!waitForLevel(HIGH, 120)) {
+      interrupts();
       reading.error = "DHT data low pulse timed out";
       return reading;
     }
 
     const uint32_t highStarted = micros();
 
-    if (!waitForLevel(LOW, 120)) {
+    if (!waitForLevel(LOW, 180)) {
+      interrupts();
       reading.error = "DHT data high pulse timed out";
       return reading;
     }
@@ -76,11 +102,12 @@ SensorReading DhtSensor::read() {
     }
   }
 
+  interrupts();
+
   if (!parseData(data, reading)) {
     return reading;
   }
 
-  _latest = reading;
   return reading;
 }
 

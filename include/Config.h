@@ -46,6 +46,7 @@ constexpr float DefaultTargetHumidityPercent = 58.0f;
 constexpr uint16_t DefaultTurnIntervalMinutes = 120;
 
 constexpr uint32_t SensorReadIntervalMs = 5000;
+constexpr uint32_t SensorStaleAfterMs = 20000;
 constexpr uint32_t TurnerPulseMs = 8000;
 constexpr uint32_t LcdRefreshIntervalMs = 2000;
 

@@ -1,11 +1,12 @@
 #include "IncubatorController.h"
 #include "JsonBuilder.h"
 #include <Preferences.h>
-#include "hatchai_random_forest_esp32.h"
+#include "hatchai_random_forest_esp32_final.h"
 
 namespace {
 Eloquent::ML::Port::RandomForestRegressor hatchModel;
 const char* TurnMetricsNamespace = "hatchai-turn";
+constexpr int ChickenIncubationDays = 21;
 }
 
 IncubatorController::IncubatorController(
@@ -99,6 +100,7 @@ String IncubatorController::buildStatusJson(
   const bool heatingOn = _heater.isOn() || _bulb2.isOn();
   const uint32_t nowMs = millis();
   const uint32_t nextTurnMs = nextTurnInMs(nowMs);
+  const int hatchDay = predictedHatchDay();
   const int daysRemaining = predictedDaysRemaining();
   const String predictedDate = predictedHatchDateIso();
 
@@ -133,10 +135,17 @@ String IncubatorController::buildStatusJson(
 
   json += ",";
   json += "\"predictedDay\":";
-  json += HatchJson::quote(daysRemaining > 0 ? String(daysRemaining) + " days remaining" : "Waiting for data");
+  json += HatchJson::quote(
+    daysRemaining > 0
+      ? String(daysRemaining) + " days remaining"
+      : hatchDay > 0 ? "Hatch due" : "Waiting for data"
+  );
   json += ",";
   json += "\"predictedDaysRemaining\":";
   json += String(daysRemaining);
+  json += ",";
+  json += "\"predictedHatchDay\":";
+  json += String(hatchDay);
   json += ",";
   json += "\"incubationDay\":";
   json += String(incubationDay());
@@ -145,7 +154,7 @@ String IncubatorController::buildStatusJson(
   json += HatchJson::quote(predictedDate.length() > 0 ? String("Predicted hatch date: ") + predictedDate : "Waiting for sensor and RTC data");
   json += ",";
   json += "\"predictionStatus\":";
-  json += HatchJson::quote(daysRemaining > 0 ? "random_forest_ready" : "waiting_for_data");
+  json += HatchJson::quote(hatchDay > 0 ? "random_forest_ready" : "waiting_for_data");
   json += ",";
   json += "\"clockStatus\":";
   json += HatchJson::quote(_clock.statusText());
@@ -233,6 +242,93 @@ String IncubatorController::buildStatusJson(
   return json;
 }
 
+String IncubatorController::buildPredictionJson(
+  const String& batchId,
+  int incubationDay
+) const {
+  String json = "{";
+  json += "\"success\":";
+
+  if (!isValidIncubationDay(incubationDay)) {
+    json += HatchJson::boolValue(false);
+    json += ",";
+    json += "\"batchId\":";
+    json += HatchJson::quote(batchId);
+    json += ",";
+    json += "\"incubationDay\":";
+    json += String(incubationDay);
+    json += ",";
+    json += "\"predictionStatus\":";
+    json += HatchJson::quote("invalid_start_date");
+    json += ",";
+    json += "\"message\":";
+    json += HatchJson::quote("Prediction unavailable - invalid or missing start date");
+    json += "}";
+    return json;
+  }
+
+  if (!hasPredictionSensorReading()) {
+    json += HatchJson::boolValue(false);
+    json += ",";
+    json += "\"batchId\":";
+    json += HatchJson::quote(batchId);
+    json += ",";
+    json += "\"incubationDay\":";
+    json += String(clampIncubationDay(incubationDay));
+    json += ",";
+    json += "\"predictionStatus\":";
+    json += HatchJson::quote("no_valid_sensor_reading");
+    json += ",";
+    json += "\"message\":";
+    json += HatchJson::quote("Prediction unavailable - no valid sensor reading");
+    json += "}";
+    return json;
+  }
+
+  const int batchIncubationDay = clampIncubationDay(incubationDay);
+  const int daysRemaining = predictedDaysRemainingForDay(batchIncubationDay);
+  const int predictedHatchDay = daysRemaining > 0
+    ? batchIncubationDay + daysRemaining
+    : 0;
+  const DateTimeValue now = _clock.now();
+  const bool rtcAvailable = _clock.isReady() && now.valid;
+  const DateTimeValue hatchDate = rtcAvailable
+    ? addDays(now, daysRemaining)
+    : DateTimeValue();
+
+  json += HatchJson::boolValue(true);
+  json += ",";
+  json += "\"batchId\":";
+  json += HatchJson::quote(batchId);
+  json += ",";
+  json += "\"incubationDay\":";
+  json += String(batchIncubationDay);
+  json += ",";
+  json += "\"requestedIncubationDay\":";
+  json += String(incubationDay);
+  json += ",";
+  json += "\"daysRemaining\":";
+  json += String(daysRemaining);
+  json += ",";
+  json += "\"predictedHatchDay\":";
+  json += String(predictedHatchDay);
+  json += ",";
+  json += "\"predictedHatchDate\":";
+  json += HatchJson::quote(rtcAvailable ? dateIso(hatchDate) : "");
+  json += ",";
+  json += "\"rtcAvailable\":";
+  json += HatchJson::boolValue(rtcAvailable);
+  json += ",";
+  json += "\"dateSource\":";
+  json += HatchJson::quote(rtcAvailable ? "rtc" : "fallback_required");
+  json += ",";
+  json += "\"predictionStatus\":";
+  json += HatchJson::quote(predictedHatchDay > 0 ? "random_forest_ready" : "waiting_for_data");
+  json += "}";
+
+  return json;
+}
+
 bool IncubatorController::hasElapsed(
   uint32_t nowMs,
   uint32_t previousMs,
@@ -269,6 +365,14 @@ void IncubatorController::readSensorIfDue(uint32_t nowMs) {
       _turner.isOn()
     );
     _lastAnomaly = "None";
+    return;
+  }
+
+  if (
+    _currentReading.valid &&
+    nowMs - _currentReading.timestampMs <= HatchConfig::SensorStaleAfterMs
+  ) {
+    _lastAnomaly = reading.error;
     return;
   }
 
@@ -421,17 +525,28 @@ int IncubatorController::incubationDay() const {
   return static_cast<int>((millis() - _startedMs) / 86400000UL);
 }
 
+int IncubatorController::predictedHatchDay() const {
+  const int daysRemaining = predictedDaysRemaining();
+  return daysRemaining > 0 ? incubationDay() + daysRemaining : 0;
+}
+
 int IncubatorController::predictedDaysRemaining() const {
-  if (!_currentReading.valid) {
+  return predictedDaysRemainingForDay(incubationDay());
+}
+
+int IncubatorController::predictedDaysRemainingForDay(int batchIncubationDay) const {
+  if (!hasPredictionSensorReading()) {
     return 0;
   }
+
+  const int modelIncubationDay = clampIncubationDay(batchIncubationDay);
 
   // Exported model contract: temperature, humidity, egg-turning state, incubation day.
   float features[] = {
     _currentReading.temperatureC,
     _currentReading.humidityPercent,
     _turner.isOn() ? 1.0f : 0.0f,
-    static_cast<float>(incubationDay())
+    static_cast<float>(modelIncubationDay)
   };
 
   const float prediction = hatchModel.predict(features);
@@ -443,19 +558,29 @@ String IncubatorController::predictedHatchDateText() const {
 
   if (iso.length() == 0) {
     const int daysRemaining = predictedDaysRemaining();
-    return daysRemaining > 0 ? String("Hatch: ") + String(daysRemaining) + "d" : "Hatch: waiting";
+
+    if (daysRemaining > 0) {
+      return String("Hatch: ") + String(daysRemaining) + "d";
+    }
+
+    if (predictedHatchDay() > 0) {
+      return "Hatch: due";
+    }
+
+    return "Hatch: waiting";
   }
 
   return "Hatch: " + iso.substring(5);
 }
 
 String IncubatorController::predictedHatchDateIso() const {
-  const int daysRemaining = predictedDaysRemaining();
+  const int hatchDay = predictedHatchDay();
 
-  if (daysRemaining <= 0 || !_clock.isReady()) {
+  if (hatchDay <= 0 || !_clock.isReady()) {
     return "";
   }
 
+  const int daysRemaining = predictedDaysRemaining();
   const DateTimeValue now = _clock.now();
 
   if (!now.valid) {
@@ -467,6 +592,47 @@ String IncubatorController::predictedHatchDateIso() const {
   return String(hatchDate.year) + "-" +
     (hatchDate.month < 10 ? "0" : "") + String(hatchDate.month) + "-" +
     (hatchDate.day < 10 ? "0" : "") + String(hatchDate.day);
+}
+
+bool IncubatorController::hasPredictionSensorReading() const {
+  if (!_currentReading.valid) {
+    return false;
+  }
+
+  if (isnan(_currentReading.temperatureC) || isnan(_currentReading.humidityPercent)) {
+    return false;
+  }
+
+  return _currentReading.temperatureC >= -40.0f &&
+    _currentReading.temperatureC <= 80.0f &&
+    _currentReading.humidityPercent >= 0.0f &&
+    _currentReading.humidityPercent <= 100.0f;
+}
+
+bool IncubatorController::isValidIncubationDay(int batchIncubationDay) const {
+  return batchIncubationDay >= 1;
+}
+
+int IncubatorController::clampIncubationDay(int batchIncubationDay) const {
+  if (batchIncubationDay < 1) {
+    return 1;
+  }
+
+  if (batchIncubationDay > ChickenIncubationDays) {
+    return ChickenIncubationDays;
+  }
+
+  return batchIncubationDay;
+}
+
+String IncubatorController::dateIso(const DateTimeValue& date) const {
+  if (!date.valid) {
+    return "";
+  }
+
+  return String(date.year) + "-" +
+    (date.month < 10 ? "0" : "") + String(date.month) + "-" +
+    (date.day < 10 ? "0" : "") + String(date.day);
 }
 
 DateTimeValue IncubatorController::addDays(const DateTimeValue& date, int days) const {

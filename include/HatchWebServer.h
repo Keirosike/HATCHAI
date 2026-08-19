@@ -17,6 +17,7 @@ private:
   void handleApiData();
   void handleApiControl();
   void handleApiTurn();
+  void handleApiPredict();
   void handleAccountGet();
   void handleAccountSave();
   void handleSessionStart();
@@ -36,6 +37,8 @@ private:
   bool parseBoolArg(const String& name, bool fallback);
   float parseFloatArg(const String& name, float fallback);
   uint16_t parseMinutesArg(const String& name, uint16_t fallback);
+  String bodyArg(const String& name);
+  String jsonBodyValue(const String& name);
   bool credentialsValid(const String& username, const String& password);
   String storedUsername();
   String storedPassword();

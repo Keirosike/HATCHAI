@@ -31,6 +31,7 @@ public:
 
   ControlSettings settings() const;
   String buildStatusJson(const String& wifiStatus, const String& ipAddress) const;
+  String buildPredictionJson(const String& batchId, int incubationDay) const;
 
 private:
   bool hasElapsed(uint32_t nowMs, uint32_t previousMs, uint32_t intervalMs) const;
@@ -47,9 +48,15 @@ private:
   String turnDateKey() const;
 
   int incubationDay() const;
+  int predictedHatchDay() const;
   int predictedDaysRemaining() const;
+  int predictedDaysRemainingForDay(int batchIncubationDay) const;
   String predictedHatchDateText() const;
   String predictedHatchDateIso() const;
+  bool hasPredictionSensorReading() const;
+  bool isValidIncubationDay(int batchIncubationDay) const;
+  int clampIncubationDay(int batchIncubationDay) const;
+  String dateIso(const DateTimeValue& date) const;
   DateTimeValue addDays(const DateTimeValue& date, int days) const;
   uint8_t daysInMonth(uint16_t year, uint8_t month) const;
   String temperatureSummary() const;

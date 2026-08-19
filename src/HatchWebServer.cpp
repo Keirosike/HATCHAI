@@ -1,4 +1,5 @@
 #include "HatchWebServer.h"
+#include <ctype.h>
 #include <FS.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
@@ -32,6 +33,8 @@ void HatchWebServer::registerRoutes() {
   _server.on("/api/control", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/turn", HTTP_POST, [this]() { handleApiTurn(); });
   _server.on("/api/turn", HTTP_OPTIONS, [this]() { handleOptions(); });
+  _server.on("/api/predict", HTTP_POST, [this]() { handleApiPredict(); });
+  _server.on("/api/predict", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/account", HTTP_GET, [this]() { handleAccountGet(); });
   _server.on("/api/account", HTTP_POST, [this]() { handleAccountSave(); });
   _server.on("/api/account", HTTP_OPTIONS, [this]() { handleOptions(); });
@@ -83,6 +86,14 @@ void HatchWebServer::handleApiControl() {
 void HatchWebServer::handleApiTurn() {
   _controller.triggerTurnCycle();
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
+}
+
+void HatchWebServer::handleApiPredict() {
+  const String batchId = bodyArg("batchId");
+  const String incubationDayText = bodyArg("incubationDay");
+  const int incubationDay = incubationDayText.toInt();
+
+  sendJson(_controller.buildPredictionJson(batchId, incubationDay));
 }
 
 void HatchWebServer::handleAccountGet() {
@@ -199,6 +210,11 @@ void HatchWebServer::handleOptions() {
 void HatchWebServer::handleStaticFile() {
   String path = _server.uri();
 
+  const int queryIndex = path.indexOf('?');
+  if (queryIndex >= 0) {
+    path = path.substring(0, queryIndex);
+  }
+
   if (path == "/") {
     path = "/index.html";
   }
@@ -219,6 +235,10 @@ void HatchWebServer::handleStaticFile() {
     return;
   }
 
+  addCorsHeaders();
+  _server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  _server.sendHeader("Pragma", "no-cache");
+  _server.sendHeader("Expires", "0");
   _server.streamFile(file, contentTypeFor(path));
   file.close();
 }
@@ -302,6 +322,63 @@ uint16_t HatchWebServer::parseMinutesArg(
   }
 
   return static_cast<uint16_t>(minutes);
+}
+
+String HatchWebServer::bodyArg(const String& name) {
+  if (_server.hasArg(name)) {
+    return _server.arg(name);
+  }
+
+  return jsonBodyValue(name);
+}
+
+String HatchWebServer::jsonBodyValue(const String& name) {
+  const String body = _server.hasArg("plain") ? _server.arg("plain") : "";
+
+  if (body.length() == 0) {
+    return "";
+  }
+
+  const String token = String("\"") + name + "\"";
+  int index = body.indexOf(token);
+
+  if (index < 0) {
+    return "";
+  }
+
+  index = body.indexOf(':', index + token.length());
+
+  if (index < 0) {
+    return "";
+  }
+
+  index++;
+
+  while (index < body.length() && isspace(body[index])) {
+    index++;
+  }
+
+  if (index >= body.length()) {
+    return "";
+  }
+
+  if (body[index] == '"') {
+    const int end = body.indexOf('"', index + 1);
+    return end > index ? body.substring(index + 1, end) : "";
+  }
+
+  int end = index;
+
+  while (
+    end < body.length() &&
+    body[end] != ',' &&
+    body[end] != '}' &&
+    !isspace(body[end])
+  ) {
+    end++;
+  }
+
+  return body.substring(index, end);
 }
 
 bool HatchWebServer::credentialsValid(const String& username, const String& password) {

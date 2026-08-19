@@ -32,8 +32,11 @@ document.addEventListener("DOMContentLoaded", function () {
   let lineHitboxes = [];
   let activeTooltip = null;
   let pinnedTooltip = false;
+  let dashboardPredictionRequestId = 0;
+  let latestDashboardData = null;
 
   const environmentCanvas = document.getElementById("environmentChart");
+  const dashboardBatchSelect = document.getElementById("dashboardBatchSelect");
 
   function resizeCanvasForSharpDisplay(canvas, ctx) {
     const ratio = window.devicePixelRatio || 1;
@@ -508,7 +511,53 @@ document.addEventListener("DOMContentLoaded", function () {
     );
   }
 
+  function renderDashboardBatchSelect(batches, selectedBatch) {
+    if (!dashboardBatchSelect) return;
+
+    dashboardBatchSelect.innerHTML = "";
+    dashboardBatchSelect.disabled = batches.length === 0;
+
+    if (batches.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No active batches";
+      dashboardBatchSelect.appendChild(option);
+      return;
+    }
+
+    batches.forEach(batch => {
+      const option = document.createElement("option");
+      option.value = batch.id;
+      option.textContent = batch.name;
+      dashboardBatchSelect.appendChild(option);
+    });
+
+    dashboardBatchSelect.value = selectedBatch ? selectedBatch.id : batches[0].id;
+  }
+
+  function setDashboardActiveBatch(id) {
+    if (!window.HatchBatchStore || !id) return;
+
+    const currentBatches = HatchBatchStore.loadBatches();
+    const selectedTarget = currentBatches.find(batch => batch.id === id);
+
+    if (!HatchBatchStore.isActiveBatch(selectedTarget)) {
+      return;
+    }
+
+    const nextBatches = currentBatches.map(batch => ({
+      ...batch,
+      selected: batch.id === id
+    }));
+
+    HatchBatchStore.saveBatches(nextBatches);
+    dashboardPredictionRequestId++;
+    updateDashboardBatchData(latestDashboardData || {});
+  }
+
   function updateTextData(data) {
+    latestDashboardData = data;
+
     const setText = (id, value) => {
       const el = document.getElementById(id);
       if (el) el.textContent = value;
@@ -565,16 +614,14 @@ document.addEventListener("DOMContentLoaded", function () {
     updateDashboardBatchData(data);
   }
 
-  function hasEspPrediction(value) {
-    const text = String(value || "").toLowerCase();
-    return Boolean(value && !text.includes("waiting") && !text.includes("random forest"));
-  }
-
-  function updateDashboardBatchData(data = {}) {
+  async function updateDashboardBatchData(data = {}) {
     if (!window.HatchBatchStore) return;
 
+    const requestId = ++dashboardPredictionRequestId;
     const batches = HatchBatchStore.loadBatches();
-    const selectedBatch = HatchBatchStore.getSelectedBatch(batches);
+    const activeBatches = HatchBatchStore.getActiveBatches(batches);
+    const selectedBatch = HatchBatchStore.getSelectedBatch(activeBatches);
+    renderDashboardBatchSelect(activeBatches, selectedBatch);
 
     const setText = (id, value) => {
       const el = document.getElementById(id);
@@ -582,7 +629,9 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     if (!selectedBatch) {
-      setText("activeBatchValue", "No batch selected");
+      setText("hatchDayValue", "No active batch selected");
+      setText("hatchDateValue", "No active batch selected");
+      setText("activeBatchValue", "No active batch selected");
       setText("dashboardLaidDate", "Not set");
       setText("dashboardStartDate", "Not set");
       setText("dashboardExpectedHatch", "Not set");
@@ -591,20 +640,98 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     const batchInfo = HatchBatchStore.calculateBatch(selectedBatch);
-    const modelDay = hasEspPrediction(data.predictedDay)
-      ? data.predictedDay
-      : batchInfo.dayText;
-    const modelDate = hasEspPrediction(data.hatchDate)
-      ? "ESP32 model: " + data.hatchDate
-      : "Batch estimate: " + batchInfo.hatchDate;
+    const dateContext = HatchBatchStore.getCurrentDateContext(data);
+    const dayInfo = HatchBatchStore.getBatchIncubationDay(
+      selectedBatch,
+      dateContext.dateIso
+    );
 
-    setText("hatchDayValue", modelDay);
-    setText("hatchDateValue", modelDate);
-    setText("activeBatchValue", selectedBatch.name + " (" + selectedBatch.count + " eggs)");
+    setText(
+      "activeBatchValue",
+      selectedBatch.name + " (" + selectedBatch.count + " eggs)"
+    );
     setText("dashboardLaidDate", HatchBatchStore.formatDate(selectedBatch.laidDate));
     setText("dashboardStartDate", HatchBatchStore.formatDate(selectedBatch.startDate));
-    setText("dashboardExpectedHatch", batchInfo.hatchDate);
+    setText("dashboardExpectedHatch", "Calculating");
     setText("dashboardBatchProgress", batchInfo.progress + "% complete, " + batchInfo.daysRemaining);
+
+    if (!dayInfo.valid) {
+      setText("hatchDayValue", "Prediction unavailable");
+      setText("hatchDateValue", dayInfo.message);
+      setText("dashboardExpectedHatch", "Not available");
+      return;
+    }
+
+    setText("hatchDayValue", "Calculating batch prediction");
+    setText(
+      "hatchDateValue",
+      "Current Day: Day " + dayInfo.rawDay + " for " + selectedBatch.name
+    );
+    setText(
+      "dashboardBatchProgress",
+      "Current Day: Day " + dayInfo.rawDay + ", " + batchInfo.progress + "% complete"
+    );
+
+    if (!HatchBatchStore.hasValidSensorData(data)) {
+      setText("hatchDayValue", "Prediction unavailable");
+      setText("hatchDateValue", "Prediction unavailable - no valid sensor reading");
+      setText("dashboardExpectedHatch", "Not available");
+      return;
+    }
+
+    try {
+      const prediction = await window.HatchEspApi.predictBatch({
+        batchId: selectedBatch.id,
+        incubationDay: dayInfo.day
+      });
+
+      if (requestId !== dashboardPredictionRequestId) {
+        return;
+      }
+
+      if (!prediction.success) {
+        setText("hatchDayValue", "Prediction unavailable");
+        setText(
+          "hatchDateValue",
+          prediction.message || "Prediction unavailable"
+        );
+        setText("dashboardExpectedHatch", "Not available");
+        return;
+      }
+
+      const daysRemaining = Number(prediction.daysRemaining);
+      let predictedDate = prediction.predictedHatchDate || "";
+      let dateSuffix = "";
+
+      if (!predictedDate && Number.isFinite(daysRemaining)) {
+        predictedDate = HatchBatchStore.getFallbackPredictedHatchDate(
+          dateContext.dateIso,
+          daysRemaining
+        );
+        dateSuffix = " (fallback date)";
+      }
+
+      const predictedDateText = predictedDate
+        ? HatchBatchStore.formatDate(predictedDate) + dateSuffix
+        : "Not available";
+
+      setText(
+        "hatchDayValue",
+        prediction.predictedHatchDay
+          ? "Predicted Hatch Day: Day " + prediction.predictedHatchDay
+          : "Prediction unavailable"
+      );
+      setText("hatchDateValue", "Predicted Hatch Date: " + predictedDateText);
+      setText("dashboardExpectedHatch", predictedDateText);
+    } catch (error) {
+      if (requestId !== dashboardPredictionRequestId) {
+        return;
+      }
+
+      setText("hatchDayValue", "Prediction unavailable");
+      setText("hatchDateValue", "Prediction unavailable - ESP32 prediction API unavailable");
+      setText("dashboardExpectedHatch", "Not available");
+    }
   }
 
   function loadSampleData() {
@@ -687,6 +814,12 @@ document.addEventListener("DOMContentLoaded", function () {
       setChartRange(button.dataset.range);
     });
   });
+
+  if (dashboardBatchSelect) {
+    dashboardBatchSelect.addEventListener("change", () => {
+      setDashboardActiveBatch(dashboardBatchSelect.value);
+    });
+  }
 
   loadESP32Data();
   setInterval(loadESP32Data, 5000);

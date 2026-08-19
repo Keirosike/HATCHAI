@@ -21,6 +21,7 @@ public:
   bool hasValidReading() const;
 
 private:
+  SensorReading readOnce();
   bool waitForLevel(uint8_t level, uint32_t timeoutMicros) const;
   bool parseData(const uint8_t data[5], SensorReading& reading) const;
 

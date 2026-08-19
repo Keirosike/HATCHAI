@@ -36,6 +36,16 @@ class HatchEspApiClient {
     });
   }
 
+  predictBatch(payload) {
+    return this.request("/api/predict", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams(this.normalizePayload(payload)).toString()
+    });
+  }
+
   normalizePayload(payload) {
     return Object.fromEntries(
       Object.entries(payload).map(([key, value]) => [

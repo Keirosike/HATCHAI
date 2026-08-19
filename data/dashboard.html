@@ -7,10 +7,10 @@
   <title>HatchAI Dashboard</title>
   <link rel="icon" href="a/images/fortitle.webp" type="image/webp" />
 
-  <link rel="stylesheet" href="css/base.css" />
-  <link rel="stylesheet" href="css/layout.css" />
-  <link rel="stylesheet" href="css/components.css" />
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/base.css?v=20260728b" />
+  <link rel="stylesheet" href="css/layout.css?v=20260728b" />
+  <link rel="stylesheet" href="css/components.css?v=20260728b" />
+  <link rel="stylesheet" href="css/dashboard.css?v=20260728b" />
 </head>
 
 <body>
@@ -89,13 +89,18 @@
       </div>
 
       <div class="card wide-card">
-        <div class="card-title">Hatch Timing Model</div>
+        <div class="prediction-card-header">
+          <div class="card-title">Hatch Timing Model</div>
+          <select class="batch-picker" id="dashboardBatchSelect" aria-label="Choose active batch">
+            <option value="">No batch selected</option>
+          </select>
+        </div>
         <div class="prediction-value" id="hatchDayValue">Random Forest</div>
         <div class="subtext" id="hatchDateValue">Waiting for ESP32 sensor data</div>
 
         <div class="prediction-meta-grid">
           <div>
-            <span>Active chicken batch</span>
+            <span>Active Batch</span>
             <strong id="activeBatchValue">No batch selected</strong>
           </div>
           <div>
@@ -107,7 +112,7 @@
             <strong id="dashboardStartDate">Not set</strong>
           </div>
           <div>
-            <span>Batch hatch date</span>
+            <span>Predicted hatch date</span>
             <strong id="dashboardExpectedHatch">Not set</strong>
           </div>
           <div>
@@ -168,11 +173,11 @@
     </section>
   </main>
 
-  <script src="js/app.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/authSession.js"></script>
-  <script src="js/batchStore.js"></script>
-  <script src="js/espApi.js"></script>
-  <script src="js/dashboard.js"></script>
+  <script src="js/app.js?v=20260728b"></script>
+  <script src="js/storage.js?v=20260728b"></script>
+  <script src="js/authSession.js?v=20260728b"></script>
+  <script src="js/batchStore.js?v=20260728b"></script>
+  <script src="js/espApi.js?v=20260728b"></script>
+  <script src="js/dashboard.js?v=20260728b"></script>
 </body>
 </html>

@@ -4,15 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <title>HatchAI Batch CRUD</title>
+  <title>HatchAI Batch</title>
   <link rel="icon" href="a/images/fortitle.webp" type="image/webp" />
 
-  <link rel="stylesheet" href="css/base.css" />
-  <link rel="stylesheet" href="css/layout.css" />
-  <link rel="stylesheet" href="css/components.css" />
-  <link rel="stylesheet" href="css/modal.css" />
-  <link rel="stylesheet" href="css/toastNotification.css" />
-  <link rel="stylesheet" href="css/batch.css" />
+  <link rel="stylesheet" href="css/base.css?v=20260728b" />
+  <link rel="stylesheet" href="css/layout.css?v=20260728b" />
+  <link rel="stylesheet" href="css/components.css?v=20260728b" />
+  <link rel="stylesheet" href="css/modal.css?v=20260728b" />
+  <link rel="stylesheet" href="css/toastNotification.css?v=20260728b" />
+  <link rel="stylesheet" href="css/batch.css?v=20260728b" />
 </head>
 
 <body>
@@ -63,7 +63,9 @@
         <div>
           <div class="card-title">Current Active Batch</div>
           <div class="batch-name" id="currentBatchName">No active batch</div>
+          <div class="batch-label-hero" id="currentBatchLabel" hidden></div>
           <div class="subtext" id="currentBatchMeta">Add a batch to start tracking incubation progress.</div>
+          <div class="subtext" id="currentBatchPrediction">No active batch selected</div>
         </div>
 
         <div>
@@ -81,11 +83,28 @@
       </div>
     </section>
 
+    <section class="card batch-slots-panel">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Incubator Batch Slots</div>
+          <p class="subtext">Three separate batch positions can be monitored together</p>
+        </div>
+
+        <span class="status-pill status-ok" id="slotCountBadge">0 / 3 Running</span>
+      </div>
+
+      <div class="batch-slots" id="batchSlots"></div>
+    </section>
+
     <section class="section-grid">
       <div class="card">
         <div class="card-title">Batch Summary</div>
 
         <ul class="mini-list">
+          <li>
+            <span>Batch label</span>
+            <strong id="summaryLabel">None</strong>
+          </li>
           <li>
             <span>Selected batch</span>
             <strong id="summaryBatch">None</strong>
@@ -107,8 +126,24 @@
             <strong id="summaryStarted">Not set</strong>
           </li>
           <li>
+            <span>Current day</span>
+            <strong id="summaryCurrentDay">Not set</strong>
+          </li>
+          <li>
             <span>Expected hatch</span>
             <strong id="summaryHatch">Not set</strong>
+          </li>
+          <li>
+            <span>Predicted hatch day</span>
+            <strong id="summaryPredictedDay">Not set</strong>
+          </li>
+          <li>
+            <span>Predicted hatch date</span>
+            <strong id="summaryPredictedDate">Not set</strong>
+          </li>
+          <li>
+            <span>Prediction status</span>
+            <strong id="summaryPredictionStatus">Not set</strong>
           </li>
           <li>
             <span>Status</span>
@@ -140,6 +175,10 @@
               <th>Laid Date</th>
               <th>Start Date</th>
               <th>Expected Hatch</th>
+              <th>Current Day</th>
+              <th>Predicted Day</th>
+              <th>Predicted Hatch</th>
+              <th>Prediction</th>
               <th>Progress</th>
               <th>Status</th>
               <th>Actions</th>
@@ -170,8 +209,21 @@
         <span class="status-pill status-ok" id="formStatus">Ready</span>
       </div>
 
-      <form class="batch-form-grid" id="batchForm">
+      <form class="batch-form-grid" id="batchForm" novalidate>
         <input type="hidden" id="batchId">
+
+        <div class="field">
+          <label for="batchLabel">Batch Label</label>
+          <input
+            type="text"
+            id="batchLabel"
+            placeholder="BATCH-001"
+            maxlength="30"
+            pattern="[A-Za-z0-9 _-]+"
+            title="Use letters, numbers, spaces, hyphens, or underscores."
+            required
+          >
+        </div>
 
         <div class="field">
           <label for="batchName">Generated Batch Name</label>
@@ -219,11 +271,23 @@
         </div>
 
         <div class="field">
-          <label for="isSelected">Show on Dashboard Summary</label>
-          <select id="isSelected">
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+          <label for="batchPredictionDay">Current Incubation Day</label>
+          <input type="text" id="batchPredictionDay" value="Not calculated" readonly>
+        </div>
+
+        <div class="field">
+          <label for="batchPredictionHatchDay">Predicted Hatch Day</label>
+          <input type="text" id="batchPredictionHatchDay" value="Not calculated" readonly>
+        </div>
+
+        <div class="field">
+          <label for="batchPredictionDate">Predicted Hatch Date</label>
+          <input type="text" id="batchPredictionDate" value="Not calculated" readonly>
+        </div>
+
+        <div class="field">
+          <label for="batchPredictionStatus">Prediction Status</label>
+          <input type="text" id="batchPredictionStatus" value="Not calculated" readonly>
         </div>
 
         <div class="field full">
@@ -252,12 +316,13 @@
     </div>
   </div>
 
-  <script src="js/app.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/authSession.js"></script>
-  <script src="js/batchStore.js"></script>
-  <script src="js/modal.js"></script>
-  <script src="js/toastNotification.js"></script>
-  <script src="js/batch.js"></script>
+  <script src="js/app.js?v=20260728b"></script>
+  <script src="js/storage.js?v=20260728b"></script>
+  <script src="js/authSession.js?v=20260728b"></script>
+  <script src="js/batchStore.js?v=20260728b"></script>
+  <script src="js/espApi.js?v=20260728b"></script>
+  <script src="js/modal.js?v=20260728b"></script>
+  <script src="js/toastNotification.js?v=20260728b"></script>
+  <script src="js/batch.js?v=20260728b"></script>
 </body>
 </html>
