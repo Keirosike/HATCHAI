@@ -3,15 +3,15 @@
 #include <Wire.h>
 #include "Config.h"
 #include "DataLogger.h"
-#include "DhtSensor.h"
 #include "HatchWebServer.h"
 #include "IncubatorController.h"
 #include "LcdStatusDisplay.h"
 #include "NetworkManager.h"
 #include "OutputDevice.h"
 #include "RealTimeClock.h"
+#include "Sht40Sensor.h"
 
-DhtSensor environmentSensor(HatchConfig::SensorPin, HatchConfig::SensorType);
+Sht40Sensor environmentSensor(HatchConfig::Sht40I2cAddress);
 OutputDevice bulb1Relay(
   HatchConfig::Bulb1RelayPin,
   HatchConfig::RelayActiveHigh,

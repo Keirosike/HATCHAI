@@ -3,6 +3,14 @@
 #include <Arduino.h>
 #include "Config.h"
 
+struct SensorReading {
+  float temperatureC = NAN;
+  float humidityPercent = NAN;
+  bool valid = false;
+  uint32_t timestampMs = 0;
+  String error = "No reading yet";
+};
+
 struct ControlSettings {
   bool autoMode = true;
   bool heaterOn = false;

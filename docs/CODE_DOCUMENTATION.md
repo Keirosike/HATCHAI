@@ -35,7 +35,7 @@ Hardware pins and default settings are defined in `include/Config.h`.
 
 | Device | Setting |
 | --- | --- |
-| DHT22 temperature/humidity sensor | GPIO 4 |
+| SHT40 temperature/humidity probe | I2C address `0x44` |
 | Bulb 1 relay | GPIO 26 |
 | Bulb 2 relay | GPIO 25 |
 | Fan relay | GPIO 14 |
@@ -59,7 +59,7 @@ Default incubation settings:
 | Target temperature | 37.8 deg C |
 | Target humidity | 58 percent |
 | Egg turn interval | 120 minutes |
-| DHT read interval | 5000 ms |
+| SHT40 read interval | 5000 ms |
 | Sensor stale timeout | 20000 ms |
 | Turner pulse duration | 8000 ms |
 | LCD refresh interval | 2000 ms |
@@ -70,7 +70,7 @@ The firmware starts in `src/main.cpp`.
 
 Global objects are created for the major hardware and service modules:
 
-- `DhtSensor environmentSensor`
+- `Sht40Sensor environmentSensor`
 - `OutputDevice bulb1Relay`
 - `OutputDevice bulb2Relay`
 - `OutputDevice fanRelay`
@@ -111,8 +111,8 @@ status text.
 
 Important responsibilities:
 
-- Read the DHT22 at the configured interval.
-- Keep the last valid sensor reading briefly when a DHT read fails.
+- Read the SHT40 at the configured interval.
+- Keep the last valid sensor reading briefly when an SHT40 read fails.
 - Apply automatic relay control rules.
 - Apply manual relay control settings.
 - Start scheduled egg turns.
@@ -125,7 +125,7 @@ Important responsibilities:
 
 ### Sensor Read Handling
 
-`readSensorIfDue()` reads the DHT22 only when the configured interval has
+`readSensorIfDue()` reads the SHT40 only when the configured interval has
 elapsed. If the read is valid:
 
 - `_currentReading` is updated.
@@ -136,7 +136,7 @@ elapsed. If the read is valid:
 If the read fails but the previous valid reading is not older than
 `SensorStaleAfterMs`, the controller keeps the previous valid reading and stores
 the new error in `_lastAnomaly`. This prevents the UI and controls from flicking
-to "No reading" because of a single DHT timing failure.
+to "No reading" because of a single I2C or CRC failure.
 
 If the previous reading is too old, the current reading becomes invalid.
 
@@ -176,38 +176,41 @@ When a turn starts:
 Turn metrics are persisted in ESP32 Preferences under the namespace
 `hatchai-turn`.
 
-## 5. DHT Sensor Driver
+## 5. SHT40 Sensor Driver
 
 Primary files:
 
-- `include/DhtSensor.h`
-- `src/DhtSensor.cpp`
+- `include/Sht40Sensor.h`
+- `src/Sht40Sensor.cpp`
 
-The DHT driver manually implements the DHT11/DHT22 timing protocol.
+The SHT40 driver communicates directly over the shared I2C bus at address
+`0x44`. It does not require an additional sensor library.
 
-`DhtSensor::read()` attempts up to 3 reads. Between retries it waits 80 ms.
-Only a valid read updates `_latest`.
+`Sht40Sensor::read()` attempts up to 3 reads. Between retries it waits 20 ms.
+Only a valid, CRC-checked measurement updates `_latest`.
 
-`DhtSensor::readOnce()`:
+`Sht40Sensor::readOnce()`:
 
-1. Sends the start pulse.
-2. Switches the pin back to input pullup.
-3. Temporarily disables interrupts for precise timing.
-4. Reads all 40 data bits.
-5. Re-enables interrupts.
-6. Checks the checksum.
-7. Parses humidity and temperature.
-8. Rejects impossible values.
+1. Sends the SHT40 high-precision measurement command `0xFD`.
+2. Waits 10 ms for the measurement to complete.
+3. Reads six bytes containing temperature, temperature CRC, humidity, and
+   humidity CRC.
+4. Validates both values with the SHT40 CRC-8 algorithm.
+5. Converts the raw values to degrees Celsius and relative humidity.
+6. Clamps humidity to the physical range of 0 to 100 percent.
+7. Rejects temperatures outside the expected SHT40 operating range.
 
 Common error strings include:
 
-- `DHT sensor did not respond`
-- `DHT response low pulse timed out`
-- `DHT response high pulse timed out`
-- `DHT data low pulse timed out`
-- `DHT data high pulse timed out`
-- `DHT checksum mismatch`
-- `DHT reading is outside expected range`
+- `SHT40 sensor not detected`
+- `SHT40 measurement response incomplete`
+- `SHT40 temperature CRC mismatch`
+- `SHT40 humidity CRC mismatch`
+- `SHT40 reading is outside expected range`
+
+The probe uses the same configured I2C pins as the RTC and LCD: SDA on GPIO 21
+and SCL on GPIO 22. Connect the probe to 3.3 V and ground unless its specific
+module documentation explicitly provides a different supported supply range.
 
 ## 6. Output Devices
 
@@ -263,7 +266,7 @@ total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes
 ```
 
 Invalid sensor readings are not logged. This avoids recording fake or misleading
-data when the DHT22 fails a read.
+data when the SHT40 fails a read.
 
 If an existing log file has an incompatible header, the code renames it to a
 `.legacy-<millis>` backup and starts a new CSV with the current header.
@@ -730,15 +733,16 @@ If firmware behavior did not change:
 - Confirm you uploaded firmware with `platformio run --target upload`.
 - Confirm the correct project folder was used.
 
-If DHT22 readings show intermittent failures:
+If SHT40 readings show intermittent failures:
 
 - The firmware retries each read up to 3 times.
 - The controller keeps the last valid reading for up to 20 seconds.
-- Check `lastAnomaly` in the dashboard for the most recent DHT error string.
+- Check SDA/SCL wiring, probe power, pull-up resistors, and address `0x44`.
+- Check `lastAnomaly` in the dashboard for the most recent SHT40 error string.
 
 If predictions are unavailable:
 
-- Confirm there is a valid DHT22 reading.
+- Confirm there is a valid SHT40 reading.
 - Confirm the selected batch has a valid start date.
 - Confirm the selected batch is Active.
 - Confirm `/api/predict` is available from the ESP32.
@@ -752,7 +756,7 @@ If SD logging is not working:
 ## 24. High-Level Flow
 
 ```text
-DHT22 sensor
+SHT40 sensor
   -> IncubatorController
   -> ReadingHistory
   -> SD logger
@@ -780,7 +784,7 @@ Browser batch record
 - Keep hardware pin changes centralized in `include/Config.h`.
 - If the model is replaced, keep the feature order aligned with
   `predictedDaysRemainingForDay()`.
-- Do not log invalid DHT readings as real sensor history.
+- Do not log invalid SHT40 readings as real sensor history.
 - Run `uploadfs` for every `data/` UI change.
 - Remember that batch records are browser-local unless a future feature moves
   them into ESP32 storage.

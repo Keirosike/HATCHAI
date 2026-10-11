@@ -18,6 +18,7 @@ constexpr uint8_t I2cSdaPin = 21;
 constexpr uint8_t I2cSclPin = 22;
 constexpr uint8_t Ds3231Address = 0x68;
 constexpr uint8_t LcdI2cAddress = 0x27;
+constexpr uint8_t Sht40I2cAddress = 0x44;
 constexpr uint8_t LcdColumns = 20;
 constexpr uint8_t LcdRows = 4;
 
@@ -26,14 +27,6 @@ constexpr uint8_t SdCardSckPin = 18;
 constexpr uint8_t SdCardMisoPin = 19;
 constexpr uint8_t SdCardMosiPin = 23;
 constexpr const char* SdLogPath = "/hatchai.csv";
-
-enum class SensorModel {
-  Dht11,
-  Dht22
-};
-
-constexpr uint8_t SensorPin = 4;
-constexpr SensorModel SensorType = SensorModel::Dht22;
 
 constexpr uint8_t Bulb1RelayPin = 26;
 constexpr uint8_t Bulb2RelayPin = 25;

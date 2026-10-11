@@ -10,7 +10,7 @@ constexpr int ChickenIncubationDays = 21;
 }
 
 IncubatorController::IncubatorController(
-  DhtSensor& sensor,
+  Sht40Sensor& sensor,
   OutputDevice& heater,
   OutputDevice& bulb2,
   OutputDevice& fan,

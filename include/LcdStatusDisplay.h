@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "DhtSensor.h"
+#include "IncubatorTypes.h"
 #include "IncubatorTypes.h"
 
 class LcdStatusDisplay {

@@ -1,7 +1,7 @@
 # HatchAI ESP32
 
 HatchAI is an ESP32-based smart incubator controller with a local web dashboard.
-It monitors temperature and humidity, controls heating bulbs, fan, and egg
+It monitors temperature and humidity with an SHT40 I2C probe, controls heating bulbs, fan, and egg
 turning relays, logs valid readings to SD card, shows local status on a 20x4
 LCD, and runs a hatch timing prediction model.
 

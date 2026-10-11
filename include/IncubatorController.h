@@ -3,17 +3,17 @@
 #include <Arduino.h>
 #include "Config.h"
 #include "DataLogger.h"
-#include "DhtSensor.h"
 #include "IncubatorTypes.h"
 #include "LcdStatusDisplay.h"
 #include "OutputDevice.h"
 #include "ReadingHistory.h"
 #include "RealTimeClock.h"
+#include "Sht40Sensor.h"
 
 class IncubatorController {
 public:
   IncubatorController(
-    DhtSensor& sensor,
+    Sht40Sensor& sensor,
     OutputDevice& heater,
     OutputDevice& bulb2,
     OutputDevice& fan,
@@ -65,7 +65,7 @@ private:
   String formatUptime(uint32_t timestampMs) const;
   uint32_t nextTurnInMs(uint32_t nowMs) const;
 
-  DhtSensor& _sensor;
+  Sht40Sensor& _sensor;
   OutputDevice& _heater;
   OutputDevice& _bulb2;
   OutputDevice& _fan;
