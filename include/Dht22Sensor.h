@@ -1,11 +1,12 @@
 #pragma once
 
 #include <Arduino.h>
+#include <DHT.h>
 #include "IncubatorTypes.h"
 
-class Sht40Sensor {
+class Dht22Sensor {
 public:
-  explicit Sht40Sensor(uint8_t address);
+  explicit Dht22Sensor(uint8_t pin);
 
   void begin();
   SensorReading read();
@@ -13,11 +14,8 @@ public:
   bool hasValidReading() const;
 
 private:
-  SensorReading readOnce();
-  bool probe();
-  uint8_t calculateCrc(const uint8_t* data, size_t length) const;
-
-  uint8_t _address;
-  bool _ready = false;
+  DHT _dht;
+  bool _initialized = false;
+  uint32_t _startedMs = 0;
   SensorReading _latest;
 };

@@ -29,7 +29,7 @@ The AI component is an exported Random Forest regressor running locally on the E
 | Trend plotting | JavaScript drawing on an HTML canvas |
 | Prediction | Exported `Eloquent::ML::Port::RandomForestRegressor` |
 
-`platformio.ini` does not declare extra `lib_deps`. The SHT40, DS3231, and LCD communication code is implemented in this repository.
+`platformio.ini` declares Adafruit DHT sensor library 1.4.7, which also depends on Adafruit Unified Sensor. The DHT22 wrapper, DS3231, and LCD communication code is implemented in this repository.
 
 ## 3. Hardware Configuration
 
@@ -37,7 +37,7 @@ All values below come from `include/Config.h`; they are configured assignments, 
 
 | Device or signal | Configuration |
 | --- | --- |
-| SHT40 temperature/humidity sensor | I2C address `0x44` |
+| DHT22 temperature/humidity sensor | DATA on GPIO 4 |
 | DS3231 real-time clock | I2C address `0x68` |
 | 20-column, 4-row LCD | I2C address `0x27` |
 | Shared I2C SDA | GPIO 21 |
@@ -82,30 +82,23 @@ Startup proceeds as follows:
 
 1. Start the serial console and shared I2C bus.
 2. Mount SPIFFS using `SPIFFS.begin(true)`, which enables formatting on a mount failure.
-3. Initialize the clock, load turning counters, initialize SD logging and LCD, probe the sensor, and initialize the relay outputs to OFF.
+3. Initialize the clock, load turning counters, initialize SD logging and LCD, initialize the DHT22 data pin, and initialize the relay outputs to OFF. Sensor presence is checked during sampling.
 4. Attempt Wi-Fi connection or start the access point.
 5. Register API routes and start the HTTP server.
 
 Each main-loop iteration updates the controller's network status, checks the sensor schedule, updates outputs and turn timing, refreshes the LCD when due, handles HTTP requests, and delays briefly.
 
-Most recurring work uses elapsed `millis()` checks. Some operations block: sensor measurement/retries, SD access, and Wi-Fi connection attempts. A connection request can wait up to 20 seconds in the HTTP handler; controller updates pause while that handler is running.
+Most recurring work uses elapsed `millis()` checks. Some operations block: the short DHT22 measurement transaction, SD access, and Wi-Fi connection attempts. A connection request can wait up to 20 seconds in the HTTP handler; controller updates pause while that handler is running.
 
 ## 6. Environmental Measurement
 
-`src/Sht40Sensor.cpp` sends the SHT40 high-precision command `0xFD`, waits 10 milliseconds, and requests six bytes. It checks a CRC for both temperature and humidity, using initial CRC `0xFF` and polynomial `0x31`.
+`src/Dht22Sensor.cpp` uses the Adafruit DHT library with DATA on GPIO 4, configured in `include/Config.h`. VCC connects to 3.3 V and GND to common ground; use a 10 kOhm pull-up from DATA to 3.3 V if the module does not have one. The DHT22 does not share the RTC/LCD I2C bus.
 
-Conversion formulas are:
+The driver permits two seconds of startup time without blocking the loop. At each five-second sample, temperature and humidity come from one checksum-validated DHT22 frame. Non-finite results, temperatures outside -40 to 80 C, and humidity outside 0-100% are invalid. Prediction uses the same environmental ranges.
 
-```text
-temperature_c = -45 + 175 * raw_temperature / 65535
-humidity_percent = -6 + 125 * raw_humidity / 65535
-```
+Each scheduled sample attempts one measurement, with retries deferred to the next sample to respect the DHT22 minimum two-second interval. A valid sample updates the current reading, RAM history, and SD log. A failed sample sets `lastAnomaly`; the controller retains the previous valid sample while its age is at most 20 seconds. Once it is too old, the reading becomes invalid at a subsequent failed sampling attempt.
 
-Humidity is clamped to 0-100%. The sensor driver rejects temperatures outside -40 to 125 C. Prediction applies a narrower temperature acceptance range of -40 to 80 C.
-
-Each scheduled sample can attempt up to three reads, with 20 milliseconds between retries. A valid sample updates the current reading, RAM history, and SD log. A failed sample sets `lastAnomaly`; the controller retains the previous valid sample while its age is at most 20 seconds. Once it is too old, the reading becomes invalid at a subsequent failed sampling attempt.
-
-Errors distinguish a missing sensor, incomplete response, temperature CRC failure, humidity CRC failure, and an out-of-range reading. Invalid measurements are not added to history or the CSV.
+Errors distinguish uninitialized/warming-up state, a read failure (timeout or checksum error), and an out-of-range reading. Invalid measurements are not added to history or the CSV.
 
 ## 7. Automatic and Manual Control
 
@@ -282,7 +275,7 @@ Consequently, the login page is not a complete access-control boundary for the d
 | `include/Config.h` | Pins, addresses, defaults, and intervals |
 | `include/IncubatorTypes.h` | Reading, control settings, and turning metric structures |
 | `src/IncubatorController.cpp` | Sensor scheduling, control, turning, predictions, and status JSON |
-| `src/Sht40Sensor.cpp` | Environmental sensor communication and validation |
+| `src/Dht22Sensor.cpp` | Environmental sensor communication and validation |
 | `src/OutputDevice.cpp` | Relay state and GPIO polarity |
 | `src/RealTimeClock.cpp` | DS3231 clock communication |
 | `src/DataLogger.cpp` | SD initialization, CSV header, and rows |

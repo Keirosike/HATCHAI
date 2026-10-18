@@ -20,7 +20,7 @@ was actually found and read.
 
 ## 1. Project Overview
 
-HatchAI is an ESP32 chicken incubator built with PlatformIO and the Arduino framework. It reads an SHT40 temperature/humidity sensor, controls two heating bulbs, a fan, and an egg-turning relay, logs valid measurements to SD, displays status on a 20x4 LCD, serves a local web dashboard from SPIFFS, and runs embedded Random Forest inference.
+HatchAI is an ESP32 chicken incubator built with PlatformIO and the Arduino framework. It reads a DHT22 temperature/humidity sensor on GPIO 4, controls two heating bulbs, a fan, and an egg-turning relay, logs valid measurements to SD, displays status on a 20x4 LCD, serves a local web dashboard from SPIFFS, and runs embedded Random Forest inference.
 
 Read [README.md](README.md), [Code Documentation](docs/CODE_DOCUMENTATION.md), and [System Details](docs/SYSTEM_DETAILS.md) for context. Inspect the relevant source before editing; source code takes precedence when documentation disagrees. These instructions guide development agents. The application contains no autonomous LLM agent runtime and does not load agent Markdown files.
 
@@ -42,7 +42,7 @@ These instructions apply throughout this repository. Check for a more specific `
 | `src/main.cpp` | Object construction, peripheral startup, controller updates, and HTTP request handling |
 | `include/Config.h`, `include/IncubatorTypes.h` | Hardware assignments, default timing/targets, readings, control settings, and turn metrics |
 | `src/IncubatorController.cpp` | Sampling, output decisions, timed turns, persisted turn metrics, predictions, and status JSON |
-| `src/Sht40Sensor.cpp`, `src/OutputDevice.cpp` | CRC-checked I2C measurements and relay GPIO/polarity abstraction |
+| `src/Dht22Sensor.cpp`, `src/OutputDevice.cpp` | Checksum-validated DHT22 measurements and relay GPIO/polarity abstraction |
 | `src/RealTimeClock.cpp` | DS3231 timestamps and build-time recovery after clock power loss |
 | `src/DataLogger.cpp`, `src/LcdStatusDisplay.cpp` | SD CSV logging and four-line LCD updates |
 | `src/ReadingHistory.cpp` | Recent valid measurements in a RAM ring buffer and history JSON |
@@ -164,12 +164,12 @@ constraints, `esp32-ui-limiter` takes priority.
 
 ## 6. Hardware and Control Constraints
 
-Configured relays are active-low: LOW is ON, HIGH is OFF. Bulb 1 uses GPIO 26, bulb 2 GPIO 25, fan GPIO 14, and turner GPIO 27. Shared I2C uses SDA 21/SCL 22; SHT40 is `0x44`, DS3231 `0x68`, and LCD `0x27`. SD SPI pins are CS 5, SCK 18, MISO 19, MOSI 23. Verify current values in `Config.h` before hardware-related changes.
+Configured relays are active-low: LOW is ON, HIGH is OFF. Bulb 1 uses GPIO 26, bulb 2 GPIO 25, fan GPIO 14, and turner GPIO 27. DHT22 DATA uses GPIO 4. Shared I2C uses SDA 21/SCL 22 for DS3231 `0x68` and LCD `0x27`. SD SPI pins are CS 5, SCK 18, MISO 19, MOSI 23. Verify current values in `Config.h` before hardware-related changes.
 
 - Defaults are automatic mode, 37.8 C temperature, 58% humidity, 120-minute turns, 8-second pulses, 5-second sampling, and 2-second LCD refresh.
 - Automatic heating switches both bulbs ON below target minus 0.3 C and OFF above target plus 0.3 C. Inside the band, including boundaries, previous states are retained.
 - The fan is ON above temperature target plus 0.5 C OR humidity target plus 5 percentage points; otherwise OFF. There is no configured actuator to raise humidity.
-- The SHT40 driver validates both CRCs, retries up to three times, clamps humidity to 0-100%, and rejects temperatures outside -40 to 125 C. Do not record invalid samples as valid history or CSV readings.
+- The DHT22 driver uses checksum-validated library reads, rejects non-finite values and measurements outside -40 to 80 C or 0-100% RH, and retries on the next five-second sample. It permits two seconds for startup without blocking. Do not record invalid samples as valid history or CSV readings.
 - After failed sampling, the controller retains a previous valid reading while its age is at most 20 seconds. On a subsequent failed sample after that limit, it becomes invalid. In automatic mode, invalid readings turn both bulbs and the fan OFF; scheduled turning is evaluated separately.
 - Manual mode bypasses automatic temperature/humidity output decisions. A sustained manual turner ON state differs from an eight-second timed turn request. At pulse completion, manual mode restores its configured turner state, which may remain ON.
 - Automatic turns are scheduled from boot or the last turn during that boot. Counters persist, but scheduling uptime does not. No motor movement feedback or incubation-day cutoff is implemented. The UI disables manual turning in automatic mode, but `/api/turn` does not enforce that restriction.
