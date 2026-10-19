@@ -1,6 +1,7 @@
 const HatchBatchStore = (() => {
   const STORAGE_KEY = "hatchai_batches";
   const CHICKEN_INCUBATION_DAYS = 21;
+  const ACTIVE_SLOT_COUNT = 2;
   const BATCH_NAME_PREFIX = "Chicken Batch ";
   const BATCH_LABEL_PREFIX = "BATCH-";
   const BATCH_LABEL_MAX_LENGTH = 30;
@@ -46,10 +47,10 @@ const HatchBatchStore = (() => {
     return label;
   }
 
-  function getDefaultBatches() {
-    return [
+  // Match only unchanged records created by the old sample-data initializer.
+  function isLegacyDemoBatch(batch) {
+    const demos = [
       {
-        id: createId(),
         label: "BATCH-001",
         name: "Chicken Batch 001",
         type: "Chicken",
@@ -60,10 +61,8 @@ const HatchBatchStore = (() => {
         targetHumidity: "58%",
         status: "Active",
         notes: "Check candling status on Day 14. Maintain stable humidity and automatic egg turning.",
-        selected: true
       },
       {
-        id: createId(),
         label: "BATCH-002",
         name: "Chicken Batch 002",
         type: "Chicken",
@@ -74,9 +73,9 @@ const HatchBatchStore = (() => {
         targetHumidity: "58%",
         status: "Completed",
         notes: "Previous completed batch.",
-        selected: false
       }
     ];
+    return demos.some(demo => Object.entries(demo).every(([key, value]) => batch[key] === value));
   }
 
   function normalizeBatch(batch) {
@@ -200,16 +199,10 @@ const HatchBatchStore = (() => {
 
   function loadBatches() {
     const saved = loadData(STORAGE_KEY);
-    const batches = normalizeBatches(saved);
-
-    if (batches.length > 0) {
-      saveBatches(batches);
-      return batches;
-    }
-
-    const defaults = getDefaultBatches();
-    saveBatches(defaults);
-    return defaults;
+    const normalized = normalizeBatches(saved);
+    const batches = normalizeBatches(normalized.filter(batch => !isLegacyDemoBatch(batch)));
+    saveBatches(batches);
+    return batches;
   }
 
   function saveBatches(batches) {
@@ -363,6 +356,7 @@ const HatchBatchStore = (() => {
   return {
     STORAGE_KEY,
     CHICKEN_INCUBATION_DAYS,
+    ACTIVE_SLOT_COUNT,
     BATCH_LABEL_MAX_LENGTH,
     createId,
     todayIso,

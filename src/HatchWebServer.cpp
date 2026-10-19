@@ -50,6 +50,8 @@ void HatchWebServer::registerRoutes() {
   _server.on("/scan-wifi", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/wifi/scan", HTTP_GET, [this]() { handleWifiScan(); });
   _server.on("/api/wifi/scan", HTTP_OPTIONS, [this]() { handleOptions(); });
+  _server.on("/api/wifi/status", HTTP_GET, [this]() { sendJson(_network.statusJson()); });
+  _server.on("/api/wifi/status", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/wifi/connect", HTTP_POST, [this]() { handleWifiConnect(); });
   _server.on("/api/wifi/connect", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/wifi/forget", HTTP_POST, [this]() { handleWifiForget(); });
@@ -195,7 +197,7 @@ void HatchWebServer::handleWifiConnect() {
   const String ssid = _server.hasArg("ssid") ? _server.arg("ssid") : "";
   const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
-  sendJson(_network.connectToWifi(ssid, password));
+  sendJson(_network.connectToWifi(ssid, password, parseBoolArg("useSaved", false)));
 }
 
 void HatchWebServer::handleWifiForget() {

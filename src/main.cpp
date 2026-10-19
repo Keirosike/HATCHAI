@@ -68,6 +68,7 @@ void setup() {
 }
 
 void loop() {
+  network.update();
   incubator.setNetworkStatus(network.statusText());
   incubator.update();
   webServer.handleClient();

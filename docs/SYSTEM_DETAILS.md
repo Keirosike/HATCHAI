@@ -83,12 +83,12 @@ Startup proceeds as follows:
 1. Start the serial console and shared I2C bus.
 2. Mount SPIFFS using `SPIFFS.begin(true)`, which enables formatting on a mount failure.
 3. Initialize the clock, load turning counters, initialize SD logging and LCD, initialize the DHT22 data pin, and initialize the relay outputs to OFF. Sensor presence is checked during sampling.
-4. Attempt Wi-Fi connection or start the access point.
+4. Start the setup access point and queue a saved/configured station connection.
 5. Register API routes and start the HTTP server.
 
 Each main-loop iteration updates the controller's network status, checks the sensor schedule, updates outputs and turn timing, refreshes the LCD when due, handles HTTP requests, and delays briefly.
 
-Most recurring work uses elapsed `millis()` checks. Some operations block: the short DHT22 measurement transaction, SD access, and Wi-Fi connection attempts. A connection request can wait up to 20 seconds in the HTTP handler; controller updates pause while that handler is running.
+Most recurring work uses elapsed `millis()` checks. Short DHT22 transactions, SD access, and SDK calls can still take time. Wi-Fi association no longer has a polling wait loop in startup or the HTTP handler: requests queue work, and `network.update()` checks progress on subsequent main-loop iterations up to a 20-second deadline. Compilation does not establish physical runtime timing guarantees.
 
 ## 6. Environmental Measurement
 
@@ -212,17 +212,17 @@ The log page does not fetch SD records. Its Apply Filters action displays a plac
 
 Batch records include ID, unique label, generated name, chicken type, egg count, laid date, start date, target temperature/humidity text, status, notes, and selection state. Labels are limited to 30 characters and allow letters, digits, spaces, underscores, and hyphens; duplicate comparison is case-insensitive.
 
-Supported statuses are Active, Completed, Paused, and Failed. Only Active records are selectable for dashboard prediction. The Batch page displays three active slot cards; this is a UI presentation and does not prove a three-batch hardware capacity or a hard limit on stored records.
+Supported statuses are Active, Completed, Paused, and Failed. Only Active records are selectable for dashboard prediction. The Batch page displays two active slot cards and rejects creating or activating a third batch while both slots are in use. Historical/non-active records remain unrestricted; existing records are retained, including older lists with more than two active records. The UI does not provide separate environmental control for each slot.
 
 Batch target values are record metadata. Selecting a batch does not send its targets to `/api/control`. Pausing or completing a browser record does not stop physical outputs. There is one shared environmental control loop for the incubator.
 
-The store supplies example batches when no usable saved records exist. Calendar-based 21-day progress and fallback dates are also calculated in the browser; these are separate from the model prediction.
+The store starts empty and does not recreate records after all are deleted. It removes unchanged legacy sample records by comparing their full sample metadata; user-created and edited records remain. Calendar-based 21-day progress and fallback dates are calculated in the browser, separately from model prediction.
 
 Calibration offsets and notes are saved and restored by the Settings page. They are not sent to the controller or applied to measured readings by the current implementation.
 
 ## 13. Networking
 
-On boot, the network manager tries saved Wi-Fi credentials for up to 15 seconds. If unsuccessful, it can try configured credentials. The shipped configuration contains `YOUR_WIFI_SSID` and `YOUR_WIFI_PASSWORD`, so those placeholders are not used for an actual configured connection. The firmware starts an access point when startup connection attempts fail or are not configured.
+On boot, the network manager starts the setup AP and queues saved Wi-Fi credentials, or configured credentials when none are saved. Each attempt has a 20-second deadline serviced by the main loop. A failed boot attempt can fall back to distinct configured credentials; saved-network recovery retries wait at least 30 seconds between attempts. The shipped configuration contains `YOUR_WIFI_SSID` and `YOUR_WIFI_PASSWORD`, so those placeholders are not used for a configured connection. The setup AP remains available during station connection and failure states.
 
 ```text
 Access point SSID: HatchAI-ESP32
@@ -233,7 +233,11 @@ HTTP port: 80
 
 Use the actual IP printed to the serial console; the firmware obtains it from the network interface. mDNS availability depends on the client/network. Connecting to a Wi-Fi router does not itself provide internet-facing remote access.
 
-The dashboard supports nearby-network scanning, connecting, saving credentials after success, and forgetting credentials. Scans return SSID, signal strength, and whether encryption is present. A user-initiated connection can wait up to 20 seconds. Forgetting credentials disconnects the station; that handler does not explicitly start the access point again.
+Settings automatically scans nearby networks and offers Refresh networks. Scan responses are bounded to 20 distinct SSIDs, retaining the strongest duplicates. Named network rows show signal strength, lock icons, and connected/saved labels. There is no manual SSID/password section. Tapping open or saved networks connects directly; saved passwords are read internally from NVS after checking that the saved SSID matches the request. New secured networks open a password dialog with Connect, Cancel, and show/hide. Unnamed networks are omitted. Tapping the connected network opens information. Requests acknowledge immediately, then polling displays Connecting, Connected, Incorrect password or connection failed, or Network unavailable. Previously saved credentials are retained after a failed attempt. Connection details are available through the information button. Refreshes wait at least five seconds after the last operation and pause while hidden.
+
+Forgetting a network clears saved Preferences, acknowledges the request, then disconnects and clears the station-driver configuration after a 750 ms grace period in the main loop. It cancels pending connection/retry work and keeps or starts the setup AP; reconnect to `HatchAI-ESP32` and open `192.168.4.1`. The browser requires a successful `forgotten: true` acknowledgement before clearing its choices. Lost responses are shown as unverified without automatically repeating the command. Browser preferences store only SSID and controller address; legacy browser Wi-Fi passwords are removed on load. The driver uses RAM storage while application credentials use Preferences/NVS. NVS/flash encryption is not configured, and HTTP remains unencrypted.
+
+Dashboard polling retains unchanged values, prediction text, selector options, and canvas content. Data and prediction requests are serialized, with a five-second wait after completion. Failed data requests retain previous readings with an offline label; no sample readings replace them.
 
 ## 14. HTTP API
 
@@ -250,6 +254,7 @@ The dashboard supports nearby-network scanning, connecting, saving credentials a
 | POST | `/api/session/end` | End a matching session |
 | GET | `/api/session/status` | Report whether a server session is active |
 | GET | `/api/wifi/scan` or `/scan-wifi` | Start or retrieve a Wi-Fi scan |
+| GET | `/api/wifi/status` | Read live connection, saved SSID, signal, IP, and setup AP details |
 | POST | `/api/wifi/connect` or `/connect-wifi` | Connect and save successful Wi-Fi credentials |
 | POST | `/api/wifi/forget` | Remove saved Wi-Fi credentials and disconnect |
 

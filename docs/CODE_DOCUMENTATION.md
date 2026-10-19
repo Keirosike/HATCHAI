@@ -90,12 +90,12 @@ During `setup()`:
 2. I2C starts using configured SDA/SCL pins.
 3. SPIFFS mounts for serving web files.
 4. `incubator.begin()` initializes RTC, logger, LCD, sensor, and relays.
-5. `network.begin()` connects to Wi-Fi or starts access point mode.
+5. `network.begin()` starts the setup AP and queues any saved/configured station connection.
 6. `webServer.begin()` registers HTTP routes and starts the server.
 
 During `loop()`:
 
-1. The controller receives the current network status.
+1. Deferred network work advances and the controller receives the current network status.
 2. The controller updates sensor readings, relay outputs, turner logic, and LCD.
 3. The web server handles browser/API requests.
 4. The loop yields with a short `delay(2)`.
@@ -330,10 +330,12 @@ Primary files:
 
 Startup behavior:
 
-1. Try saved Wi-Fi credentials from Preferences namespace `hatchai-wifi`.
-2. If saved credentials work, connect as a station.
-3. If no saved credentials exist and hardcoded Wi-Fi is configured, try it.
-4. If station connection fails, start the ESP32 access point.
+1. Start the setup AP and keep it available during station connection attempts.
+2. Queue saved credentials from Preferences namespace `hatchai-wifi`, if present.
+3. Otherwise queue configured credentials, if they are not placeholders.
+4. Advance the attempt in `network.update()` without a connection wait loop.
+   A failed boot attempt can fall back to distinct configured credentials.
+   Saved-network recovery retries wait at least 30 seconds between attempts.
 
 Default access point:
 
@@ -355,6 +357,49 @@ Wi-Fi API support includes:
 - Save credentials.
 - Forget saved credentials.
 - Report current Wi-Fi status and IP address.
+
+`POST /api/wifi/connect` and its alias return immediately with `accepted: true`
+and `connecting: true` after validating and queuing the request. The main loop
+starts the station attempt after 250 ms and checks it until connected or a
+20-second deadline. It does not wait for association in the HTTP handler.
+Only a successful connection writes credentials to Preferences. A failed user
+attempt leaves previously saved credentials in place and awaits another user
+attempt. Startup and subsequent loss of a saved connection support retries.
+
+`GET /api/wifi/status` reports connected/saved/requested SSIDs, `connecting`,
+`connectionState` (`idle`, `connecting`, `connected`, `failed`), `error`
+(`network_unavailable`, `connection_failed`, or empty), `credentialsSaved`,
+signal in dBm (or `null`), current IP, and setup AP name/IP. It never returns
+a password. The UI polls this response at least five seconds after its previous
+operation finishes and pauses while hidden. The connection-failed message
+includes incorrect password as a possible cause; the status does not establish
+that every failure is an authentication error.
+
+Settings automatically scans on opening, or after an ongoing connection
+finishes. Refresh networks scans again. Scan responses are capped at 20 distinct
+SSIDs, retaining the strongest duplicate; the browser also deduplicates.
+Secured networks have lock icons. Settings has no manual SSID/password form:
+tapping an open network connects immediately, and tapping the saved network
+uses its NVS password on the ESP32 (`useSaved=true`) without returning it to
+the browser. A new secured network opens a password dialog with Connect,
+Cancel, and show/hide. Unnamed networks are omitted. Tapping the connected
+network opens its details. The information icon also expands connection
+details and Forget network; browser-saved flags never establish live status.
+
+The Wi-Fi driver uses RAM credential storage; application credentials are
+persisted only in Preferences/NVS. Browser preferences contain only SSID and
+controller address, and legacy browser Wi-Fi passwords are removed on load.
+Preferences storage alone does not enable NVS/flash encryption; encryption at
+rest is not configured by this project. HTTP and existing endpoint access-control
+limitations still apply.
+
+Forgetting clears the `hatchai-wifi` namespace, acknowledges the request, then
+disconnects and erases the station driver's credentials after a 750 ms grace
+period serviced by `network.update()`. It keeps or starts the setup AP. The user
+must rejoin `HatchAI-ESP32` and open `192.168.4.1`. A failed or missing response
+is shown as unverified; the browser does not retry a state-changing request at
+another address. New browser Wi-Fi preferences contain only the chosen SSID
+and controller address; passwords are sent to the ESP32 when connecting.
 
 ## 12. Web Server and API
 
@@ -382,6 +427,7 @@ responses and static web files from SPIFFS.
 | GET | `/api/session/status` | Check whether a session is active |
 | GET | `/scan-wifi` | Scan Wi-Fi networks |
 | GET | `/api/wifi/scan` | Scan Wi-Fi networks |
+| GET | `/api/wifi/status` | Read connected/saved SSID, signal, IP, and setup AP details |
 | POST | `/api/wifi/connect` | Connect ESP32 to Wi-Fi |
 | POST | `/api/wifi/forget` | Remove saved Wi-Fi credentials |
 | POST | `/connect-wifi` | Alternate Wi-Fi connect route |
@@ -539,7 +585,9 @@ The dashboard displays:
 - Quick summary.
 - Recent status.
 
-The dashboard polls `/api/data` every few seconds. It then:
+The dashboard waits five seconds after completing its data/prediction requests
+before polling `/api/data` again. Requests are serialized, bounded by timeouts,
+and paused while hidden. It then:
 
 1. Updates live sensor and relay text.
 2. Updates chart data from the history JSON.
@@ -547,6 +595,11 @@ The dashboard polls `/api/data` every few seconds. It then:
 4. Filters dashboard choices to Active batches only.
 5. Sends the selected batch incubation day to `/api/predict`.
 6. Displays the resulting hatch prediction.
+
+Unchanged text, batch options, and chart data are retained. Refreshing the same
+batch does not insert generic uptime predictions or calculating placeholders;
+canvas dimensions change only on actual resize. A failed data request retains
+the previous readings and marks them offline instead of inserting sample data.
 
 Completed and Failed batches are not shown in the dashboard batch selector.
 
@@ -607,9 +660,16 @@ ESP32. The ESP32 provides sensor data and prediction calculation, while the
 browser stores the batch list and sends each batch's incubation day to the ESP32
 for prediction.
 
-The current UI supports three active incubator batch slots. Each slot card shows
+The current UI supports two active incubator batch slots. Each slot card shows
 one Active batch. Clicking an Active slot selects it for the dashboard. The View
 button opens the batch in read-only mode.
+
+The shared store exposes `ACTIVE_SLOT_COUNT = 2`. Creating or activating an
+additional batch is rejected when both slots are occupied. Non-active records
+can still be kept, and existing records are not discarded to enforce capacity.
+The initial batch list is empty; deleting all records keeps it empty. Loading
+removes only records matching all unchanged legacy sample metadata, preserving
+user-created records and sample records the user has edited.
 
 Batch statuses:
 

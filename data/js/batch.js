@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   const BatchStore = window.HatchBatchStore;
+  const SLOT_COUNT = BatchStore.ACTIVE_SLOT_COUNT;
   let batches = BatchStore.loadBatches();
   let batchPredictions = {};
   let predictionRequestId = 0;
@@ -163,13 +164,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function getSlotBatches() {
     const selectedBatch = getSelectedBatch();
-    const slotBatches = getActiveBatches().slice(0, 3);
+    const slotBatches = getActiveBatches().slice(0, SLOT_COUNT);
 
     if (selectedBatch && !slotBatches.some(batch => batch.id === selectedBatch.id)) {
-      if (slotBatches.length < 3) {
+      if (slotBatches.length < SLOT_COUNT) {
         slotBatches.push(selectedBatch);
       } else {
-        slotBatches[2] = selectedBatch;
+        slotBatches[SLOT_COUNT - 1] = selectedBatch;
       }
     }
 
@@ -182,10 +183,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const slotBatches = getSlotBatches();
     const runningCount = getActiveBatches().length;
 
-    slotCountBadge.textContent = Math.min(runningCount, 3) + " / 3 Running";
+    slotCountBadge.textContent = Math.min(runningCount, SLOT_COUNT) + " / " + SLOT_COUNT + " Running";
     batchSlots.innerHTML = "";
 
-    for (let index = 0; index < 3; index++) {
+    for (let index = 0; index < SLOT_COUNT; index++) {
       const batch = slotBatches[index];
       const slot = document.createElement("div");
 
@@ -467,6 +468,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function validateBatch(batch) {
+    const existing = batches.find(item => item.id === batch.id);
+    if (BatchStore.isActiveBatch(batch) && !BatchStore.isActiveBatch(existing) &&
+        getActiveBatches().length >= SLOT_COUNT) {
+      return "Both batch slots are in use. Complete or pause a batch before starting another.";
+    }
     const labelError = BatchStore.getBatchLabelError(batch.label, batches, batch.id);
 
     if (labelError) {

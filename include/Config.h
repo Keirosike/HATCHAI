@@ -42,5 +42,11 @@ constexpr uint32_t SensorReadIntervalMs = 5000;
 constexpr uint32_t SensorStaleAfterMs = 20000;
 constexpr uint32_t TurnerPulseMs = 8000;
 constexpr uint32_t LcdRefreshIntervalMs = 2000;
+constexpr uint32_t WifiForgetGraceMs = 750;
+constexpr uint32_t WifiConnectStartDelayMs = 250;
+constexpr uint32_t WifiConnectSettleMs = 1000;
+constexpr uint32_t WifiConnectTimeoutMs = 20000;
+constexpr uint32_t WifiReconnectIntervalMs = 30000;
+constexpr uint8_t WifiScanResultLimit = 20;
 
 }

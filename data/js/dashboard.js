@@ -1,28 +1,9 @@
 document.addEventListener("DOMContentLoaded", function () {
   const DEGREE_C = "\u00B0C";
 
-  const chartDataSets = {
-    hour: {
-      labels: ["5m", "10m", "15m", "20m", "25m", "30m", "35m", "40m"],
-      temperature: [37.4, 37.5, 37.6, 37.8, 37.7, 37.9, 38.0, 37.8],
-      humidity: [55, 56, 57, 58, 57, 59, 60, 58]
-    },
-    day: {
-      labels: ["12AM", "3AM", "6AM", "9AM", "12PM", "3PM", "6PM", "9PM"],
-      temperature: [37.3, 37.4, 37.5, 37.8, 37.9, 37.7, 37.6, 37.8],
-      humidity: [54, 55, 56, 58, 60, 59, 57, 58]
-    },
-    week: {
-      labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-      temperature: [37.5, 37.6, 37.7, 37.8, 37.6, 37.9, 37.8],
-      humidity: [55, 56, 58, 57, 59, 60, 58]
-    },
-    month: {
-      labels: ["W1", "W2", "W3", "W4"],
-      temperature: [37.5, 37.7, 37.8, 37.6],
-      humidity: [55, 58, 60, 57]
-    }
-  };
+  const chartDataSets = Object.fromEntries(
+    ["hour", "day", "week", "month"].map(range => [range, { labels: [], temperature: [], humidity: [] }])
+  );
 
   let currentRange = "hour";
   let tempData = chartDataSets.hour.temperature;
@@ -34,6 +15,23 @@ document.addEventListener("DOMContentLoaded", function () {
   let pinnedTooltip = false;
   let dashboardPredictionRequestId = 0;
   let latestDashboardData = null;
+  let dashboardPredictionContext = "";
+  let dashboardBatchOptions = "";
+  let lastChartRender = "";
+  let dashboardLoading = false;
+  let dashboardPollTimer = null;
+  let dashboardApiTask = Promise.resolve();
+
+  function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element && element.textContent !== value) element.textContent = value;
+  }
+
+  function dashboardRequest(action) {
+    const task = dashboardApiTask.catch(() => {}).then(action);
+    dashboardApiTask = task;
+    return task;
+  }
 
   const environmentCanvas = document.getElementById("environmentChart");
   const dashboardBatchSelect = document.getElementById("dashboardBatchSelect");
@@ -42,8 +40,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const ratio = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
 
-    canvas.width = rect.width * ratio;
-    canvas.height = rect.height * ratio;
+    const width = Math.round(rect.width * ratio);
+    const height = Math.round(rect.height * ratio);
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
 
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
@@ -353,7 +353,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function renderCharts() {
+    if (!environmentCanvas) return;
+    const rect = environmentCanvas.getBoundingClientRect();
+    const state = JSON.stringify([currentRange, tempData, humidityData, chartLabels,
+      rect.width, rect.height, window.devicePixelRatio || 1, activeTooltip]);
+    if (state === lastChartRender) return;
     drawCombinedChart();
+    lastChartRender = state;
   }
 
   function getCanvasPointerPosition(event) {
@@ -514,8 +520,15 @@ document.addEventListener("DOMContentLoaded", function () {
   function renderDashboardBatchSelect(batches, selectedBatch) {
     if (!dashboardBatchSelect) return;
 
-    dashboardBatchSelect.innerHTML = "";
+    const options = JSON.stringify(batches.map(batch => [batch.id, batch.name]));
     dashboardBatchSelect.disabled = batches.length === 0;
+    if (options === dashboardBatchOptions) {
+      const selected = selectedBatch ? selectedBatch.id : batches[0]?.id || "";
+      if (dashboardBatchSelect.value !== selected) dashboardBatchSelect.value = selected;
+      return;
+    }
+    dashboardBatchOptions = options;
+    dashboardBatchSelect.replaceChildren();
 
     if (batches.length === 0) {
       const option = document.createElement("option");
@@ -555,22 +568,17 @@ document.addEventListener("DOMContentLoaded", function () {
     updateDashboardBatchData(latestDashboardData || {});
   }
 
-  function updateTextData(data) {
+  async function updateTextData(data) {
     latestDashboardData = data;
-
-    const setText = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    };
 
     const formatTemperature = value => {
       const number = Number(value);
-      return Number.isFinite(number) ? number.toFixed(1) + DEGREE_C : "--";
+      return value !== null && Number.isFinite(number) ? number.toFixed(1) + DEGREE_C : "--";
     };
 
     const formatHumidity = value => {
       const number = Number(value);
-      return Number.isFinite(number) ? Math.round(number) + "%" : "--";
+      return value !== null && Number.isFinite(number) ? Math.round(number) + "%" : "--";
     };
 
     setText("tempValue", formatTemperature(data.temperature));
@@ -579,11 +587,10 @@ document.addEventListener("DOMContentLoaded", function () {
     setText("relayBadge", data.relayBadge || "Bulbs Idle");
     setText("motorValue", data.motorStatus || "Idle");
     setText("motorSubtext", data.motorNote || "Waiting for ESP32 data");
-    setText("hatchDayValue", data.predictedDay || "Waiting for data");
-    setText(
-      "hatchDateValue",
-      data.hatchDate || "Waiting for ESP32 sensor data"
-    );
+    if (!window.HatchBatchStore) {
+      setText("hatchDayValue", data.predictedDay || "Waiting for data");
+      setText("hatchDateValue", data.hatchDate || "Waiting for ESP32 sensor data");
+    }
     setText("lastUpdated", "Last updated: " + (data.lastUpdated || "--"));
     setText("summaryTemp", data.summaryTemp || "No Data");
     setText("summaryHumidity", data.summaryHumidity || "No Data");
@@ -607,11 +614,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const relayBadge = document.getElementById("relayBadge");
     if (relayBadge) {
-      relayBadge.className =
-        "status-pill " + (data.relayOn ? "status-on" : "status-off");
+      const className = "status-pill " + (data.relayOn ? "status-on" : "status-off");
+      if (relayBadge.className !== className) relayBadge.className = className;
     }
 
-    updateDashboardBatchData(data);
+    await updateDashboardBatchData(data);
   }
 
   async function updateDashboardBatchData(data = {}) {
@@ -623,12 +630,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const selectedBatch = HatchBatchStore.getSelectedBatch(activeBatches);
     renderDashboardBatchSelect(activeBatches, selectedBatch);
 
-    const setText = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    };
-
     if (!selectedBatch) {
+      dashboardPredictionContext = "";
       setText("hatchDayValue", "No active batch selected");
       setText("hatchDateValue", "No active batch selected");
       setText("activeBatchValue", "No active batch selected");
@@ -645,6 +648,9 @@ document.addEventListener("DOMContentLoaded", function () {
       selectedBatch,
       dateContext.dateIso
     );
+    const context = JSON.stringify([selectedBatch.id, selectedBatch.startDate, dateContext.dateIso, dayInfo.rawDay]);
+    const changedContext = context !== dashboardPredictionContext;
+    dashboardPredictionContext = context;
 
     setText(
       "activeBatchValue",
@@ -652,8 +658,6 @@ document.addEventListener("DOMContentLoaded", function () {
     );
     setText("dashboardLaidDate", HatchBatchStore.formatDate(selectedBatch.laidDate));
     setText("dashboardStartDate", HatchBatchStore.formatDate(selectedBatch.startDate));
-    setText("dashboardExpectedHatch", "Calculating");
-    setText("dashboardBatchProgress", batchInfo.progress + "% complete, " + batchInfo.daysRemaining);
 
     if (!dayInfo.valid) {
       setText("hatchDayValue", "Prediction unavailable");
@@ -662,11 +666,11 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    setText("hatchDayValue", "Calculating batch prediction");
-    setText(
-      "hatchDateValue",
-      "Current Day: Day " + dayInfo.rawDay + " for " + selectedBatch.name
-    );
+    if (changedContext) {
+      setText("dashboardExpectedHatch", "Calculating");
+      setText("hatchDayValue", "Calculating batch prediction");
+      setText("hatchDateValue", "Current Day: Day " + dayInfo.rawDay + " for " + selectedBatch.name);
+    }
     setText(
       "dashboardBatchProgress",
       "Current Day: Day " + dayInfo.rawDay + ", " + batchInfo.progress + "% complete"
@@ -680,12 +684,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     try {
-      const prediction = await window.HatchEspApi.predictBatch({
-        batchId: selectedBatch.id,
-        incubationDay: dayInfo.day
-      });
+      const prediction = await dashboardRequest(() => requestId === dashboardPredictionRequestId ?
+        window.HatchEspApi.predictBatch({ batchId: selectedBatch.id, incubationDay: dayInfo.day }) : null);
 
-      if (requestId !== dashboardPredictionRequestId) {
+      if (requestId !== dashboardPredictionRequestId || !prediction) {
         return;
       }
 
@@ -734,42 +736,17 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function loadSampleData() {
-    const sample = {
-      temperature: 37.8,
-      humidity: 58,
-      relayStatus: "Heating ON",
-      relayBadge: "Bulbs Active",
-      relayOn: true,
-      motorStatus: "Idle",
-      motorNote: "Next egg turning in 1 hr 20 min",
-      predictedDay: "Random Forest",
-      hatchDate: "Waiting for ESP32 sensor data",
-      lastUpdated: "10:42 AM",
-      summaryTemp: "Stable",
-      summaryHumidity: "Normal",
-      summaryRelay: "Automatic",
-      summaryTurning: "Enabled",
-      lastTurn: "09:20 AM",
-      turnsToday: 0,
-      totalTurns: 0,
-      actualTurnIntervalMinutes: 0,
-      lastAnomaly: "None",
-      sensorStatus: "Connected",
-      clockStatus: "Ready",
-      sdStatus: "Ready",
-      wifiStatus: "Online"
-    };
 
-    updateTextData(sample);
-    renderCharts();
-  }
 
   async function loadESP32Data() {
+    if (dashboardLoading || document.hidden) return;
+    dashboardLoading = true;
     try {
-      const data = await window.HatchEspApi.getData();
+      const data = await dashboardRequest(() => window.HatchEspApi.getData());
+      const previousChart = JSON.stringify([tempData, humidityData, chartLabels]);
 
-      updateTextData(data);
+      await updateTextData(data);
+      setText("chartStatus", "Live");
 
       if (
         data.history &&
@@ -800,13 +777,28 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
 
-      activeTooltip = null;
-      pinnedTooltip = false;
+      if (previousChart !== JSON.stringify([tempData, humidityData, chartLabels])) {
+        activeTooltip = null;
+        pinnedTooltip = false;
+      }
 
       renderCharts();
     } catch (error) {
-      loadSampleData();
+      setText("wifiStatus", "Unavailable");
+      setText("wifiValue", "Unavailable");
+      setText("chartStatus", latestDashboardData ? "Offline - last data" : "No data");
+      setText("lastUpdated", latestDashboardData ?
+        "Connection lost - last reading: " + (latestDashboardData.lastUpdated || "unknown") :
+        "ESP32 unavailable - waiting for data");
+    } finally {
+      dashboardLoading = false;
+      scheduleDashboardPoll();
     }
+  }
+
+  function scheduleDashboardPoll() {
+    clearTimeout(dashboardPollTimer);
+    if (!document.hidden) dashboardPollTimer = setTimeout(loadESP32Data, 5000);
   }
 
   document.querySelectorAll(".filter-btn").forEach(button => {
@@ -822,7 +814,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   loadESP32Data();
-  setInterval(loadESP32Data, 5000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) clearTimeout(dashboardPollTimer);
+    else scheduleDashboardPoll();
+  });
 
   window.addEventListener("resize", renderCharts);
 });

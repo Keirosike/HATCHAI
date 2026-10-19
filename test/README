@@ -9,3 +9,25 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+Browser regression checks
+-------------------------
+`ui-regression.cjs` is a host-only Node.js script, separate from PlatformIO Test
+Runner. It requires an installed Playwright module and Google Chrome. Run:
+
+    node test/ui-regression.cjs
+
+If Playwright is installed outside normal module resolution, set
+`HATCH_PLAYWRIGHT_MODULE` to its absolute module directory before running.
+The current workstation's existing module is available at:
+
+    C:/Users/LENOVO/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core
+
+The script serves assets on a temporary loopback port, uses isolated browser
+storage and a simulated clock, and mocks every device API. It checks Wi-Fi
+scan/connection/forget flows, saved-network one-tap joins, password dialogs,
+two batch slots, removal of unchanged sample records, preservation of owned
+records, dashboard rendering stability, changed-data updates, and offline
+recovery. It also guards against explicit delay/polling
+wait loops in the networking source. It does not contact a board, upload files,
+energize outputs, test NVS persistence, or establish radio timing guarantees.
