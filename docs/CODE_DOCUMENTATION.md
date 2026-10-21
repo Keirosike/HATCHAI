@@ -1,6 +1,13 @@
 # HatchAI Code Documentation
 
+> See [automatic sync update](AUTOMATIC_SYNC.md) for current SD/clock startup, direct fan/roller controls, Both placement, day-18 cutoff and snapshot/profile migration. Older setup-button instructions below are historical.
+
+> Current manual control, roller selection and LCD behavior: [roller control update](MANUAL_ROLLER_CONTROL.md).
+
+> Control recovery update: see [automatic startup and DHT22 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
+
 This document explains the structure and behavior of the HatchAI ESP32 codebase.
+For the current safety profile and commissioning steps, see [Integrated Control](INTEGRATED_CONTROL.md).
 It is written for maintaining, presenting, debugging, and extending the project.
 
 ## 1. Project Overview
@@ -38,10 +45,10 @@ Hardware pins and default settings are defined in `include/Config.h`.
 | Device | Setting |
 | --- | --- |
 | DHT22 temperature/humidity sensor | DATA on GPIO 4 |
-| Bulb 1 relay | GPIO 26 |
-| Bulb 2 relay | GPIO 25 |
-| Fan relay | GPIO 14 |
-| Egg turner relay | GPIO 27 |
+| Heating bulb relay (IN2) | GPIO 27 |
+| Fan relay (IN1) | GPIO 14 |
+| Batch 1 turner relay (IN3) | GPIO 26 |
+| Batch 2 turner relay (IN4) | GPIO 25 |
 | Relay polarity | Active-low |
 | I2C SDA | GPIO 21 |
 | I2C SCL | GPIO 22 |
@@ -58,161 +65,72 @@ Default incubation settings:
 
 | Setting | Value |
 | --- | --- |
-| Target temperature | 37.8 deg C |
-| Target humidity | 58 percent |
+| Target temperature | 37.5 deg C |
+| Target humidity | 55 percent |
 | Egg turn interval | 120 minutes |
-| DHT22 read interval | 5000 ms |
-| Sensor stale timeout | 20000 ms |
-| Turner pulse duration | 8000 ms |
+| DHT22 read interval | 2000 ms |
+| Sensor stale timeout | 6500 ms |
+| Automatic turner run, each motor | 15000 ms initially; calibrated 1–600 seconds |
+| Manual timed run, each motor | 1–600 seconds, initially 15 |
 | LCD refresh interval | 2000 ms |
 
 ## 3. Firmware Startup Flow
 
-The firmware starts in `src/main.cpp`.
+The objects in `src/main.cpp` are retained: DHT22, four OutputDevices, DS3231,
+logger, LCD, controller, network manager and web server. Setup configures I2C
+with a 25 ms transaction timeout, then initializes the controller's relays OFF
+and fan ON before peripheral/file-system/network startup. SPIFFS mounts with
+`begin(false)` so a mount failure does not silently format assets.
 
-Global objects are created for the major hardware and service modules:
+The controller loads the checked `hatchai-ctrl` profile and existing turn
+metrics, starts sensor/LCD/logger/RTC support and configures an eight-second
+task watchdog. Network setup remains deferred/non-blocking.
 
-- `Dht22Sensor environmentSensor`
-- `OutputDevice bulb1Relay`
-- `OutputDevice bulb2Relay`
-- `OutputDevice fanRelay`
-- `OutputDevice turnerRelay`
-- `RealTimeClock realTimeClock`
-- `DataLogger dataLogger`
-- `LcdStatusDisplay lcdDisplay`
-- `IncubatorController incubator`
-- `NetworkManager network`
-- `HatchWebServer webServer`
-
-During `setup()`:
-
-1. Serial starts at `115200`.
-2. I2C starts using configured SDA/SCL pins.
-3. SPIFFS mounts for serving web files.
-4. `incubator.begin()` initializes RTC, logger, LCD, sensor, and relays.
-5. `network.begin()` starts the setup AP and queues any saved/configured station connection.
-6. `webServer.begin()` registers HTTP routes and starts the server.
-
-During `loop()`:
-
-1. Deferred network work advances and the controller receives the current network status.
-2. The controller updates sensor readings, relay outputs, turner logic, and LCD.
-3. The web server handles browser/API requests.
-4. The loop yields with a short `delay(2)`.
+Each loop updates network/controller state and services HTTP. The watchdog is
+fed through `completeLoop()` only after the entire loop completes. The existing
+short 2 ms scheduler yield remains; motor and thermostat control have no blocking waits.
 
 ## 4. Main Controller
 
-Primary files:
+`IncubatorController` coordinates existing peripherals plus these small modules:
 
-- `include/IncubatorController.h`
-- `src/IncubatorController.cpp`
+- `ThermalSafety.h`: sensor qualification, unfiltered thresholds and alarm hysteresis.
+- `RelayThermostat.h`: target +/-0.3 C hysteresis, retained in-band state, minimum OFF time and safety override.
+- `DeviceProfile.h`: versioned NVS profile, verified writes and fail-closed loading.
+- `TurnSchedule.h` / `TurnCycle.h`: RTC age/due predicates and independent millis pulse deadlines.
+- `RuntimeWatchdog.h`: ESP-IDF 4/5 task watchdog API adapters.
 
-`IncubatorController` coordinates the incubator behavior. It owns the current
-control settings, latest sensor reading, turn metrics, reading history, and
-status text.
+Brief failed samples retain the last valid measurement for at most 20 seconds,
+without refreshing its timestamp or logging an invalid frame. Sensor readiness
+requires three stable valid samples. Calibration is applied before control,
+safety/history/logging/model input. Thermostat and safety use the unfiltered
+calibrated temperature. Protection runs in both modes; see [thermostat control](THERMOSTAT_CONTROL.md).
 
-Important responsibilities:
+The fan runs automatically or under a heating/sensor/thermal override; safe manual OFF is supported. Heating holds above 38.0°C until at/below 37.5°C, warns
+at 38.5°C and critically latches at 39.0°C. Critical flags persist; recovery
+requires deliberate acknowledgment with valid cool readings. Low warnings and
+abnormal-reset holds are described in [Integrated Control](INTEGRATED_CONTROL.md).
 
-- Read the DHT22 at the configured interval.
-- Keep the last valid sensor reading briefly when a DHT22 read fails.
-- Apply automatic relay control rules.
-- Apply manual relay control settings.
-- Start scheduled egg turns.
-- Stop egg turner pulses after the configured pulse duration.
-- Record and persist egg turning metrics.
-- Log valid readings to SD card.
-- Refresh the LCD display.
-- Build JSON responses for the web dashboard.
-- Run the Random Forest prediction model.
+Motor starts require an enabled schedule, valid sensor/RTC, active assigned
+batch outside lockdown, working storage/watchdog and no critical/reset hold.
+One motor runs at a time with a one-second gap. Its reservation is durably
+saved before relay ON; counters remain in their existing namespaces.
+Interrupted turns are skipped after reset, and missed history is not replayed.
 
-### Sensor Read Handling
-
-`readSensorIfDue()` reads the DHT22 only when the configured interval has
-elapsed. If the read is valid:
-
-- `_currentReading` is updated.
-- The reading is added to `ReadingHistory`.
-- The reading is written to SD card.
-- `_lastAnomaly` is set to `None`.
-
-If the read fails but the previous valid reading is not older than
-`SensorStaleAfterMs`, the controller keeps the previous valid reading and stores
-the new error in `_lastAnomaly`. This prevents the UI and controls from flicking
-to "No reading" because of a single I2C or CRC failure.
-
-If the previous reading is too old, the current reading becomes invalid.
-
-### Automatic Output Rules
-
-Automatic mode is handled by `updateAutomaticOutputs()`.
-
-If the current sensor reading is invalid:
-
-- Bulb 1 turns off.
-- Bulb 2 turns off.
-- Fan turns off.
-
-If the reading is valid:
-
-- Bulbs turn on when temperature is below target by more than 0.3 deg C.
-- Bulbs turn off when temperature is above target by more than 0.3 deg C.
-- Fan turns on when temperature is above target by more than 0.5 deg C.
-- Fan also turns on when humidity is above target by more than 5 percent.
-
-### Egg Turner Logic
-
-Egg turning can happen in two ways:
-
-- Automatically, based on `turnIntervalMinutes`.
-- Manually, through the web API endpoint `/api/turn`.
-
-When a turn starts:
-
-- The turn event is recorded.
-- Total turns and turns today are incremented.
-- Last turn timestamp is updated.
-- Actual interval is calculated if there was a previous turn.
-- The turner relay turns on.
-- `_turnerStopMs` is set so the pulse stops after `TurnerPulseMs`.
-
-Turn metrics are persisted in ESP32 Preferences under the namespace
-`hatchai-turn`.
+Targets, calibration, intervals and durations persist. Mode defaults to auto
+on reboot; manual ON requests do not persist. Legacy manual motor switches
+request bounded runs. Stop cancels a selected active/queued run in either mode.
 
 ## 5. DHT22 Sensor Driver
 
-Primary files:
-
-- `include/Dht22Sensor.h`
-- `src/Dht22Sensor.cpp`
-
-The driver uses Adafruit's DHT sensor library, pinned to version 1.4.7 in
-`platformio.ini`, with DATA on `HatchConfig::Dht22Pin` (GPIO 4). PlatformIO also
-resolves the library's Adafruit Unified Sensor dependency.
-
-`begin()` initializes the data pin; it does not claim sensor detection. Reads
-during the first two seconds return an invalid warm-up result without blocking.
-`Dht22Sensor::read()` performs one measurement per scheduled five-second sample.
-There are no immediate retries: DHT22 reads require at least two seconds apart.
-Temperature and humidity use the same checksum-validated frame cached by the library.
-
-`Dht22Sensor::read()`:
-
-1. Rejects reads before initialization or while warming up.
-2. Reads temperature in Celsius and humidity in percent through the library.
-3. Rejects non-finite values from timeout/checksum failures.
-4. Rejects temperatures outside -40 to 80 C and humidity outside 0 to 100 percent.
-5. Updates `_latest` only for valid readings.
-
-Common error strings include:
-
-- `DHT22 not initialized`
-- `DHT22 warming up`
-- `DHT22 read failed (timeout or checksum error)`
-- `DHT22 reading is outside expected range`
-
-Connect VCC to 3.3 V, GND to GND, and DATA to GPIO 4. Use a 10 kOhm
-pull-up from DATA to 3.3 V unless the module already supplies one. A bare four-pin
-DHT22 leaves pin 3 unused. The RTC and LCD remain on I2C GPIO 21/22.
+`src/Dht22Sensor.cpp` retains the Adafruit checksum-validated driver on GPIO4.
+Supply is 3.3 V; add a 4.7–10 kOhm DATA pull-up to 3.3 V if none is fitted.
+The wrapper permits two-second startup and the controller samples every two
+seconds. Temperature and humidity use the same cached frame. Failed reads,
+non-finite values, temperatures outside -40..80°C and humidity outside 0..100%
+are invalid. Protocol reads take bounded time; scheduling does not wait two
+seconds in a delay loop. Invalid samples are excluded from history and CSV.
+The controller applies the persisted temperature offset and validates recovery.
 
 ## 6. Output Devices
 
@@ -233,22 +151,13 @@ appropriate low output level.
 
 ## 7. Real-Time Clock
 
-Primary files:
-
-- `include/RealTimeClock.h`
-- `src/RealTimeClock.cpp`
-
-The `RealTimeClock` module talks to a DS3231 over I2C. It provides:
-
-- Hardware detection.
-- Lost-power detection.
-- Current date/time.
-- Full timestamp strings.
-- Short time strings.
-
-If the RTC lost power, the code sets the RTC to the firmware build time. This
-prevents completely invalid timestamps, but the time should still be checked if
-the RTC battery was removed or drained.
+`RealTimeClock` now polls DS3231 once per second with bounded I2C transactions.
+It validates response lengths, BCD, calendar fields, 24-hour encoding and OSF.
+Three good reads establish readiness. Frozen/backward/jumped clocks lose trust.
+It caches dates for logging/API/LCD instead of reading I2C on every accessor.
+No build-time fallback is written to hardware. Set actual local date/time
+through Control with turning disabled. RTC failure stops turning; valid
+temperature regulation may continue. `Calendar.h` supplies checked epoch math.
 
 ## 8. SD Card Logger
 
@@ -257,14 +166,22 @@ Primary files:
 - `include/DataLogger.h`
 - `src/DataLogger.cpp`
 
-The SD logger writes valid sensor readings to `/hatchai.csv`.
+`DataLogger` queues valid RTC-stamped readings to `/hatchai.csv` every 10 seconds.
+`RecoveryStorage.cpp` exclusively owns SD/SPI in a separate low-priority task.
+It verifies writes/readbacks, rotates logs, and validates alternating CRC recovery
+files. `ControllerRecovery.cpp`, `RecoveryState.h`, `RecoveryCodec.h` and
+`RecoveryGuard.h` integrate startup, durable motor transactions, NVS intents,
+RTC day/lockdown and persistent safety. See [SD Recovery](SD_RECOVERY.md) for
+schemas, failure policy, Arduino export and the required physical test matrix.
 
 CSV columns:
 
 ```text
-timestamp,temperature_c,humidity_percent,mode,bulb1,bulb2,fan,turner,
+timestamp,temperature_c,humidity_percent,mode,bulb1,fan,turner,
 target_temperature_c,target_humidity_percent,turn_interval_minutes,
-total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes
+total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes,
+turner2,turn_interval2_minutes,total_turns2,turns_today2,last_turn2_timestamp,
+actual_turn_interval2_minutes
 ```
 
 Invalid sensor readings are not logged. This avoids recording fake or misleading
@@ -275,49 +192,20 @@ If an existing log file has an incompatible header, the code renames it to a
 
 ## 9. LCD Display
 
-Primary files:
-
-- `include/LcdStatusDisplay.h`
-- `src/LcdStatusDisplay.cpp`
-
-The LCD module directly drives a 20x4 I2C character LCD.
-
-On boot it shows:
-
-```text
-HatchAI Incubator
-HatchAI booting
-Sensor starting
-Prediction ready
-```
-
-During normal operation it shows:
-
-- Temperature.
-- Humidity.
-- Egg turner status.
-- Hatch prediction/date text.
-
-If there is no valid reading, temperature and humidity display placeholder
-values.
+The existing 20x4 LCD driver and two-second refresh remain. Temperature and
+humidity occupy the first two lines, the third shows the two restored batch days or a short
+safety alarm/hold, and the fourth retains the generic hatch prediction.
+The generic prediction uses the first active physical batch and RTC elapsed time.
+Bound `/api/predict` requests also use the device's restored start timestamp.
+An invalid RTC makes the day unavailable. LCD messages are not evidence of
+actual hatching or motor motion.
 
 ## 10. Reading History
 
-Primary files:
-
-- `include/ReadingHistory.h`
-- `src/ReadingHistory.cpp`
-
-`ReadingHistory` stores up to 96 recent valid readings in memory. It builds JSON
-for the dashboard chart using multiple display windows:
-
-- `hour`: up to 12 points.
-- `day`: up to 24 points.
-- `week`: up to 32 points.
-- `month`: up to 48 points.
-
-The labels are relative to the current uptime, such as `now`, `-30s`, `-5m`, or
-`-2h`.
+`ReadingHistory` retains its 96-valid-sample RAM ring buffer. At the new
+two-second sampling interval this is about 3.2 minutes. Invalid samples are
+never inserted. The hour/day/week/month fields contain bounded recent subsets,
+not long-term archives reconstructed from SD. The existing Canvas charts remain.
 
 ## 11. Network Manager
 
@@ -418,6 +306,7 @@ responses and static web files from SPIFFS.
 | GET | `/api/data` | Current sensor, relay, prediction, history, and status JSON |
 | POST | `/api/control` | Update auto/manual mode, relay states, targets, and turn interval |
 | POST | `/api/turn` | Trigger an egg turning pulse |
+| POST | `/api/safety` | Authenticated alarm/arming/clock/batch actions |
 | POST | `/api/predict` | Run batch-specific hatch prediction |
 | GET | `/api/account` | Read stored account username |
 | POST | `/api/account` | Save account username/password |
@@ -548,18 +437,11 @@ Page JavaScript:
 
 ## 15. Browser API Client
 
-Primary file:
-
-- `data/js/espApi.js`
-
-`HatchEspApiClient` wraps calls to the ESP32 API:
-
-- `getData()`
-- `updateControl(payload)`
-- `turnEggsNow()`
-- `predictBatch(payload)`
-
-All requests use `cache: "no-store"` to reduce stale API results.
+`data/js/espApi.js` retains URL-encoded request bodies and existing endpoints.
+All client instances share one request queue, including Settings/Wi-Fi clients.
+Timeouts begin when a queued request actually starts. Backend error messages
+reach the UI. New safety actions carry the active session token in the form body.
+No credentials/passwords are added to diagnostic responses.
 
 ## 16. Dashboard Page
 
@@ -605,27 +487,31 @@ Completed and Failed batches are not shown in the dashboard batch selector.
 
 ## 17. Control Page
 
-Primary files:
+The Control page requires matching relay pins and `safety.version=2`.
+It shows separate Lower and Upper controls with their saved batch labels and interval
+choices. Default durations are 15 seconds and are editable for calibrated
+automatic/manual travel. It shows actual outputs separately from heating requests.
+The fan switch sends a manual request; automatic/heating/sensor/thermal overrides keep circulation ON when required.
 
-- `data/control.html`
-- `data/js/control.js`
-- `data/css/control.css`
+The Control Summary sidebar is removed. Targets and airflow share one card,
+each roller groups its duration/interval and batch label. Assignments are saved on
+Batch; component status and exceptional acknowledgments are in Settings. A sticky Save bar remains reachable on
+smaller screens. Heating demand and actual bulb state appear beside the bulb.
 
-The Control page handles:
+Save Settings first opens a review dialog with targets, both roller timings and
+assigned records. Confirm sends the reviewed snapshot; Keep editing, Escape and
+backdrop dismissal send no writes. A changed batch record/date warning explains
+that turning will be disabled. Changed/deleted records are checked again before
+saving. Mode/bulb switches apply only their own immediate setting and cannot
+save unreviewed target/timing edits. The shared modal supports keyboard focus
+containment and returns focus on cancellation.
 
-- Automatic/manual mode switching.
-- Bulb control.
-- Fan control.
-- Turner control.
-- Target temperature.
-- Target humidity.
-- Egg turn interval.
-- Manual "Turn Eggs Now" command.
-
-In automatic mode, manual relay controls are locked because the firmware decides
-the output states.
-
-In manual mode, the page sends relay state choices to `/api/control`.
+The Batch form binds records to Lower, Upper or Both physical rollers. Control
+Save applies targets and timings after review; active batch saves enable schedules.
+Active batch saves enable their schedules automatically. Lost RTC time syncs from the logged-in browser; exceptional alarm/position acknowledgments are in the Settings component modal.
+Start requests can queue behind another motor; Stop remains available in auto.
+Polling stays at least five seconds apart, pauses while hidden and preserves
+edited fields. Runtime errors/holds are explained instead of reported as success.
 
 ## 18. Batch Page
 
@@ -680,6 +566,8 @@ Batch statuses:
 
 The batch table still lists all records for review, editing, and deletion.
 
+Bound records also send their start date/active state to the device when saved or deleted. Control explicitly maps each ID to a physical roller. Full record lists remain browser-local; failed synchronization is labeled unconfirmed.
+
 ## 19. Settings and Login
 
 Primary files:
@@ -721,14 +609,20 @@ The Settings page supports:
 
 | Data | Location |
 | --- | --- |
-| Firmware settings during runtime | ESP32 RAM |
-| Turn metrics | ESP32 Preferences namespace `hatchai-turn` |
-| Wi-Fi credentials | ESP32 Preferences namespace `hatchai-wifi` |
-| Account credentials | ESP32 Preferences namespace `hatchai` |
-| Sensor log CSV | SD card `/hatchai.csv` |
-| Web UI files | SPIFFS |
-| Batch records | Browser localStorage key `hatchai_batches` |
-| Browser session | Browser localStorage key `hatchaiActiveSession` |
+| Current reading, mode and manual requests | ESP32 RAM |
+| Targets, temperature offset, durations/intervals, bound dates/IDs, reservations, arm/critical state | Preferences `hatchai-ctrl` |
+| Turn metrics | Preferences `hatchai-turn` and `hatchai-turn2` |
+| Wi-Fi credentials / account | Existing `hatchai-wifi` / `hatchai` namespaces |
+| Valid sensor CSV | SD `/hatchai.csv` |
+| Web UI | SPIFFS |
+| Full batch records | Browser `hatchai_batches` |
+| Account/calibration notes/session | Existing browser storage keys |
+
+Bound batch Save/Delete actions synchronize its date/active state; unassigned
+records have no hardware effect. Failed/offline updates are marked unconfirmed.
+Unassigned/history browser records remain local. Missing active assigned records
+can import from verified SD/device state into free browser slots. Temperature
+offsets now affect firmware; humidity offsets/notes remain browser-only.
 
 ## 21. Upload and Deployment Notes
 
@@ -750,7 +644,7 @@ run. If both firmware and web files changed, run both commands.
 Recommended full update:
 
 ```powershell
-cd C:\Users\LENOVO\Desktop\hatchai-esp32final
+cd C:\Users\LENOVO\Desktop\HATCHAI
 C:\Users\LENOVO\.platformio\penv\Scripts\platformio.exe run --target upload
 C:\Users\LENOVO\.platformio\penv\Scripts\platformio.exe run --target uploadfs
 ```
@@ -798,7 +692,7 @@ If firmware behavior did not change:
 If DHT22 readings show intermittent failures:
 
 - The firmware retries at the next five-second sample, without rapid retries.
-- The controller keeps the last valid reading for up to 20 seconds.
+- Heating stops on a detected invalid sample; recovery requires three stable valid readings.
 - Check DATA wiring to GPIO 4, sensor power, common ground, and the DATA pull-up.
 - Check `lastAnomaly` in the dashboard for the most recent DHT22 error string.
 

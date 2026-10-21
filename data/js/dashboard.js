@@ -570,6 +570,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   async function updateTextData(data) {
     latestDashboardData = data;
+    setText("safetyBanner", data.safety?.message || "Safety status unavailable: check firmware version.");
+    const safetyBanner = document.getElementById("safetyBanner");
+    const safetyLevel = data.safety?.level || (data.safety?.critical ? "critical" : "ok");
+    if (safetyBanner && safetyBanner.dataset.level !== safetyLevel) safetyBanner.dataset.level = safetyLevel;
 
     const formatTemperature = value => {
       const number = Number(value);
@@ -584,7 +588,7 @@ document.addEventListener("DOMContentLoaded", function () {
     setText("tempValue", formatTemperature(data.temperature));
     setText("humidityValue", formatHumidity(data.humidity));
     setText("relayValue", data.relayStatus || "Heating OFF");
-    setText("relayBadge", data.relayBadge || "Bulbs Idle");
+    setText("relayBadge", data.relayBadge || "Bulb Idle");
     setText("motorValue", data.motorStatus || "Idle");
     setText("motorSubtext", data.motorNote || "Waiting for ESP32 data");
     if (!window.HatchBatchStore) {
@@ -642,11 +646,11 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    const batchInfo = HatchBatchStore.calculateBatch(selectedBatch);
     const dateContext = HatchBatchStore.getCurrentDateContext(data);
-    const dayInfo = HatchBatchStore.getBatchIncubationDay(
+    const batchInfo = HatchBatchStore.calculateBatch(selectedBatch, dateContext.dateTime);
+    const dayInfo = HatchBatchStore.getDeviceBatchDay(selectedBatch,data) || HatchBatchStore.getBatchIncubationDay(
       selectedBatch,
-      dateContext.dateIso
+      dateContext.dateTime || dateContext.dateIso
     );
     const context = JSON.stringify([selectedBatch.id, selectedBatch.startDate, dateContext.dateIso, dayInfo.rawDay]);
     const changedContext = context !== dashboardPredictionContext;
@@ -654,7 +658,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     setText(
       "activeBatchValue",
-      selectedBatch.name + " (" + selectedBatch.count + " eggs)"
+      selectedBatch.name + " (" + (selectedBatch.count || "Unknown") + " eggs)"
     );
     setText("dashboardLaidDate", HatchBatchStore.formatDate(selectedBatch.laidDate));
     setText("dashboardStartDate", HatchBatchStore.formatDate(selectedBatch.startDate));
@@ -663,6 +667,7 @@ document.addEventListener("DOMContentLoaded", function () {
       setText("hatchDayValue", "Prediction unavailable");
       setText("hatchDateValue", dayInfo.message);
       setText("dashboardExpectedHatch", "Not available");
+      setText("dashboardBatchProgress", "Incubation day unavailable");
       return;
     }
 
@@ -785,6 +790,9 @@ document.addEventListener("DOMContentLoaded", function () {
       renderCharts();
     } catch (error) {
       setText("wifiStatus", "Unavailable");
+      setText("safetyBanner", "Connection lost. Current temperature safety status is unavailable.");
+      const safetyBanner = document.getElementById("safetyBanner");
+      if (safetyBanner && safetyBanner.dataset.level !== "warning") safetyBanner.dataset.level = "warning";
       setText("wifiValue", "Unavailable");
       setText("chartStatus", latestDashboardData ? "Offline - last data" : "No data");
       setText("lastUpdated", latestDashboardData ?

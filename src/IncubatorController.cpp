@@ -5,90 +5,180 @@
 
 namespace {
 Eloquent::ML::Port::RandomForestRegressor hatchModel;
-const char* TurnMetricsNamespace = "hatchai-turn";
+const char* TurnMetricsNamespaces[] = {"hatchai-turn", "hatchai-turn2"};
 constexpr int ChickenIncubationDays = 21;
+uint32_t localEpoch(const String& iso) {
+  if(iso.length()!=19 || iso[4]!='-' || iso[7]!='-' || iso[10]!='T' || iso[13]!=':' || iso[16]!=':') return 0;
+  for(uint8_t i=0;i<19;++i) if(i!=4 && i!=7 && i!=10 && i!=13 && i!=16 && (iso[i]<'0'||iso[i]>'9')) return 0;
+  return HatchCalendar::epoch(iso.substring(0,4).toInt(),iso.substring(5,7).toInt(),iso.substring(8,10).toInt(),
+    iso.substring(11,13).toInt(),iso.substring(14,16).toInt(),iso.substring(17,19).toInt());
+}
 }
 
 IncubatorController::IncubatorController(
   Dht22Sensor& sensor,
   OutputDevice& heater,
-  OutputDevice& bulb2,
   OutputDevice& fan,
   OutputDevice& turner,
+  OutputDevice& turner2,
   RealTimeClock& clock,
   DataLogger& logger,
   LcdStatusDisplay& display
 ) : _sensor(sensor),
     _heater(heater),
-    _bulb2(bulb2),
     _fan(fan),
     _turner(turner),
+    _turner2(turner2),
     _clock(clock),
     _logger(logger),
     _display(display) {}
 
+void IncubatorController::initializeOutputs() {
+  if(_outputsInitialized) return;
+  _heater.begin();
+  _fan.begin();
+  _turner.begin();
+  _turner2.begin();
+  _fan.set(true);
+  _outputsInitialized=true;
+}
 void IncubatorController::begin() {
   _startedMs = millis();
+  _recoveryLoadStartedMs = _startedMs;
+  initializeOutputs();
+  _heaterControl.reset(_startedMs);
+  _motorOffMs = _startedMs;
+  _profile.begin();
+  _recoveryGuard.begin();
+  if (_profile.healthy) {
+    const DeviceProfile& p = _profile.value;
+    _settings.autoMode = (p.flags&8)==0;
+    _settings.targetTemperatureC = p.temperature;
+    _settings.targetHumidityPercent = p.humidity;
+    _settings.temperatureOffsetC = p.calibration;
+    _settings.turnIntervalMinutes = p.interval[0];
+    _settings.turnInterval2Minutes = p.interval[1];
+    _settings.turnDurationSeconds = p.duration[0];
+    _settings.turnDuration2Seconds = p.duration[1];
+    _safety.critical = (p.flags & 1) != 0;
+  }
   _clock.begin();
-  loadTurnMetrics();
+  loadTurnMetrics(0);
+  loadTurnMetrics(1);
   _logger.begin();
   _display.begin();
   _sensor.begin();
-  _heater.begin();
-  _bulb2.begin();
-  _fan.begin();
-  _turner.begin();
+  _watchdog.begin();
+  if (_profile.healthy && ((_watchdog.recoveryRequired && _watchdog.reason!=ESP_RST_BROWNOUT) || (_profile.value.flags & 4))) {
+    _watchdog.recoveryRequired = true;
+    if (!(_profile.value.flags & 4)) { _profile.value.flags |= 4; persistProfile(); }
+  }
 }
 
 void IncubatorController::update() {
   const uint32_t nowMs = millis();
 
-  refreshTurnMetricsDate();
+  updateTurnerPulse(nowMs);
+  _clock.update();
+  _safety.update(millis(), _startedMs);
+  if (!_safety.sensorValid && _currentReading.valid) {
+    _currentReading.valid = false;
+    _currentReading.error = "DHT22 reading is stale";
+  }
+  refreshTurnMetricsDate(0);
+  refreshTurnMetricsDate(1);
   readSensorIfDue(nowMs);
-  updateOutputs(nowMs);
-  refreshDisplayIfDue(nowMs);
+  updateRecovery(millis());
+  // Recover reset-only holds automatically; never clear a critical heat alarm.
+  if (_watchdog.recoveryRequired && _profile.healthy && _watchdog.healthy &&
+      _safety.ready(millis()) && !_safety.critical) {
+    _profile.value.flags &= ~4UL;
+    if (persistProfile()) {
+      _watchdog.recoveryRequired = false;
+      logSystem("RESET_RECOVERED", "Stable sensor readings; restart hold cleared automatically");
+    }
+  }
+  updateOutputs(millis());
+  refreshDisplayIfDue(millis());
 }
 
 void IncubatorController::setNetworkStatus(const String& status) {
   _networkStatus = status;
 }
 
-void IncubatorController::applySettings(const ControlSettings& settings) {
+bool IncubatorController::applySettings(const ControlSettings& settings) {
+  if (!(settings.targetTemperatureC >= 30 && settings.targetTemperatureC <= 37.8f) ||
+      !(settings.targetHumidityPercent >= 0 && settings.targetHumidityPercent <= 100) ||
+      !(settings.temperatureOffsetC >= -2 && settings.temperatureOffsetC <= 2) ||
+      settings.turnIntervalMinutes < 30 || settings.turnIntervalMinutes > 360 ||
+      settings.turnInterval2Minutes < 30 || settings.turnInterval2Minutes > 360 ||
+      settings.turnDurationSeconds < 1 || settings.turnDurationSeconds > 600 ||
+      settings.turnDuration2Seconds < 1 || settings.turnDuration2Seconds > 600 || !_profile.healthy) return false;
+  const bool resetHeating = settings.autoMode != _settings.autoMode ||
+    settings.targetTemperatureC != _settings.targetTemperatureC ||
+    settings.temperatureOffsetC != _settings.temperatureOffsetC;
+  const bool calibrationChanged = settings.temperatureOffsetC != _settings.temperatureOffsetC;
+  if (settings.autoMode != _settings.autoMode) stopTurnCycle();
+  DeviceProfile previous = _profile.value;
   _settings = settings;
-
-  if (_settings.turnIntervalMinutes == 0) {
-    _settings.turnIntervalMinutes = HatchConfig::DefaultTurnIntervalMinutes;
-  }
-
-  if (!_settings.autoMode) {
-    _heater.set(_settings.heaterOn);
-    _bulb2.set(_settings.bulb2On);
-    _fan.set(_settings.fanOn);
-    _turner.set(_settings.turnerOn);
-  } else {
-    _settings.bulb2On = _settings.heaterOn;
-  }
+  DeviceProfile& p = _profile.value;
+  p.flags=(p.flags&~8UL) | (settings.autoMode ? 0 : 8) | 16;
+  if(settings.autoMode && (_profile.value.active[0] || _profile.value.active[1])) p.flags|=2;
+  p.temperature = settings.targetTemperatureC; p.humidity = settings.targetHumidityPercent;
+  p.calibration = settings.temperatureOffsetC;
+  p.interval[0] = settings.turnIntervalMinutes; p.interval[1] = settings.turnInterval2Minutes;
+  p.duration[0] = settings.turnDurationSeconds; p.duration[1] = settings.turnDuration2Seconds;
+  if (memcmp(&previous, &p, sizeof(p)) != 0 && !persistProfile()) return false;
+  if (calibrationChanged) { _safety.invalidate(); _currentReading.valid = false; }
+  if (resetHeating || (!_settings.autoMode && !_settings.heaterOn)) forceHeaterOff(millis());
+  requestStateSave();
+  // Legacy switches request bounded timed runs; continuous motor ON is removed.
+  if (!settings.autoMode && settings.turnerOn) triggerTurnCycle(1, p.duration[0] * 1000UL);
+  if (!settings.autoMode && settings.turner2On) triggerTurnCycle(2, p.duration[1] * 1000UL);
+  _settings.turnerOn = _settings.turner2On = false;
+  updateOutputs(millis());
+  return true;
 }
 
-void IncubatorController::triggerTurnCycle() {
-  const uint32_t nowMs = millis();
-
-  if (_turnerStopMs != 0) {
-    return;
+bool IncubatorController::triggerTurnCycle(uint8_t motor, uint32_t pulseMs, bool manual) {
+  if (motor > 2 || pulseMs < HatchConfig::MinManualTurnSeconds * 1000UL ||
+      pulseMs > HatchConfig::MaxManualTurnSeconds * 1000UL) {
+    return false;
   }
+  const uint32_t nowMs = millis();
+  bool accepted = false;
+  for (uint8_t index = 0; index < 2; ++index) {
+    if ((motor == 0 || motor == index + 1) && (manual || !_settings.autoMode ? manualMotorAllowed(index, nowMs) : motorAllowed(index, nowMs)) &&
+        !_turnCycles[index].active && !_queuedMotor[index]) {
+      _queuedMotor[index] = true; _queuedManual[index]=manual || !_settings.autoMode;
+      _queuedPulseMs[index] = pulseMs; accepted = true;
+    }
+  }
+  maybeStartScheduledTurn(nowMs);
+  return accepted;
+}
 
-  recordTurnEvent(nowMs);
-  _turner.set(true);
-  _turnerStopMs = nowMs + HatchConfig::TurnerPulseMs;
+void IncubatorController::stopTurnCycle(uint8_t motor) {
+  for (uint8_t index = 0; index < 2; ++index) {
+    if (motor != 0 && motor != index + 1) continue;
+    const bool interrupted=_turnCycles[index].active || _preparingMotor==index;
+    motorOutput(index).set(false); // OFF precedes logging and all persistent work
+    if (interrupted) {
+      _motorOffMs = millis(); _preparingMotor=-1;
+      _recoveryState.motors[index].transaction=HatchRecovery::Transaction::Interrupted;
+      _recoveryState.motors[index].positionHold=true;
+      logMotor(index,"stopped_position_unknown"); requestStateSave();
+    }
+    _turnCycles[index].active = false; _queuedMotor[index] = false; _manualMotor[index] = false; _queuedManual[index]=false;
+    if (index == 0) _settings.turnerOn = false;
+    else _settings.turner2On = false;
+    motorOutput(index).set(false);
+  }
 }
 
 ControlSettings IncubatorController::settings() const {
+  // Form updates must retain manual requests, not latch a timed pulse ON.
   ControlSettings current = _settings;
-  current.heaterOn = _heater.isOn();
-  current.bulb2On = _bulb2.isOn();
-  current.fanOn = _fan.isOn();
-  current.turnerOn = _turner.isOn();
-
   return current;
 }
 
@@ -97,40 +187,45 @@ String IncubatorController::buildStatusJson(
   const String& ipAddress
 ) const {
   const bool valid = _currentReading.valid;
-  const bool heatingOn = _heater.isOn() || _bulb2.isOn();
+  const bool heatingOn = _heater.isOn();
+  const bool motorsOn = _turner.isOn() || _turner2.isOn();
   const uint32_t nowMs = millis();
-  const uint32_t nextTurnMs = nextTurnInMs(nowMs);
+  const uint32_t nextTurnMs = min(nextTurnInMs(nowMs, 0), nextTurnInMs(nowMs, 1));
   const int hatchDay = predictedHatchDay();
   const int daysRemaining = predictedDaysRemaining();
   const String predictedDate = predictedHatchDateIso();
+  const String rtcTime = _clock.timestamp();
 
   String json = "{";
   json += "\"temperature\":";
-  json += HatchJson::number(_currentReading.temperatureC, 1);
+  json += valid ? HatchJson::number(_currentReading.temperatureC, 1) : String("null");
   json += ",";
   json += "\"humidity\":";
-  json += HatchJson::number(_currentReading.humidityPercent, 0);
+  json += valid ? HatchJson::number(_currentReading.humidityPercent, 0) : String("null");
   json += ",";
   json += "\"relayStatus\":";
   json += HatchJson::quote(heatingOn ? "Heating ON" : "Heating OFF");
   json += ",";
   json += "\"relayBadge\":";
-  json += HatchJson::quote(heatingOn ? "Bulbs Active" : "Bulbs Idle");
+  json += HatchJson::quote(heatingOn ? "Bulb Active" : "Bulb Idle");
   json += ",";
   json += "\"relayOn\":";
   json += HatchJson::boolValue(heatingOn);
   json += ",";
   json += "\"motorStatus\":";
-  json += HatchJson::quote(_turner.isOn() ? "Turning" : "Idle");
+  json += HatchJson::quote(motorsOn ? "Turning" : "Idle");
   json += ",";
   json += "\"motorNote\":";
 
-  if (_turner.isOn()) {
-    json += HatchJson::quote("Egg turn cycle is running");
-  } else if (_settings.autoMode) {
+  if (motorsOn) {
+    json += HatchJson::quote(
+      _turner.isOn() && _turner2.isOn() ? "Both batch turners are ON" :
+      _turner.isOn() ? "Batch 1 egg turner is ON" : "Batch 2 egg turner is ON"
+    );
+  } else if (_settings.autoMode && (motorAllowed(0, nowMs) || motorAllowed(1, nowMs))) {
     json += HatchJson::quote(String("Next egg turning in ") + formatDuration(nextTurnMs));
   } else {
-    json += HatchJson::quote("Manual control mode");
+    json += HatchJson::quote(turnState(0) + " / " + turnState(1));
   }
 
   json += ",";
@@ -157,10 +252,12 @@ String IncubatorController::buildStatusJson(
   json += HatchJson::quote(hatchDay > 0 ? "random_forest_ready" : "waiting_for_data");
   json += ",";
   json += "\"clockStatus\":";
-  json += HatchJson::quote(_clock.statusText());
+  json += HatchJson::quote(rtcTime == "RTC unavailable" && _clock.isReady()
+    ? String("Read failed") : _clock.statusText());
   json += ",";
+  json += "\"clockSyncNeeded\":"+HatchJson::boolValue(_clock.needsSync())+",";
   json += "\"rtcTime\":";
-  json += HatchJson::quote(_clock.timestamp());
+  json += HatchJson::quote(rtcTime);
   json += ",";
   json += "\"sdStatus\":";
   json += HatchJson::quote(_logger.statusText());
@@ -181,31 +278,48 @@ String IncubatorController::buildStatusJson(
   json += HatchJson::quote(_settings.autoMode ? "Automatic" : "Manual");
   json += ",";
   json += "\"summaryTurning\":";
-  json += HatchJson::quote(_settings.autoMode ? "Enabled" : "Manual");
+  json += HatchJson::quote(!(_profile.value.flags & 2) ? "Disabled" : _settings.autoMode ? "Scheduled" : "Manual");
   json += ",";
   json += "\"lastTurn\":";
-  json += HatchJson::quote(_turningMetrics.lastTurnTimestamp);
+  json += HatchJson::quote(_turningMetrics[0].lastTurnTimestamp);
   json += ",";
   json += "\"totalTurns\":";
-  json += String(_turningMetrics.totalTurns);
+  json += String(_turningMetrics[0].totalTurns);
   json += ",";
   json += "\"turnsToday\":";
-  json += String(_turningMetrics.turnsToday);
+  json += String(_turningMetrics[0].turnsToday);
   json += ",";
   json += "\"actualTurnIntervalMinutes\":";
-  json += String(_turningMetrics.actualTurnIntervalMinutes);
+  json += String(_turningMetrics[0].actualTurnIntervalMinutes);
+  json += ",\"lastTurn2\":" + HatchJson::quote(_turningMetrics[1].lastTurnTimestamp);
+  json += ",\"totalTurns2\":" + String(_turningMetrics[1].totalTurns);
+  json += ",\"turnsToday2\":" + String(_turningMetrics[1].turnsToday);
+  json += ",\"actualTurnInterval2Minutes\":" + String(_turningMetrics[1].actualTurnIntervalMinutes);
   json += ",";
   json += "\"lastAnomaly\":";
   json += HatchJson::quote(_lastAnomaly);
   json += ",";
   json += "\"sensorStatus\":";
   json += HatchJson::quote(valid ? "Connected" : "No reading");
+  json += ",\"sensorValid\":" + HatchJson::boolValue(valid);
+  json += ",\"sensorError\":" + HatchJson::quote(
+    valid ? (_lastAnomaly == "None" ? String("") : _lastAnomaly) : _currentReading.error
+  );
+  json += ",\"sensorAgeSeconds\":";
+  json += valid ? String((nowMs - _currentReading.timestampMs) / 1000) : String("null");
   json += ",";
   json += "\"wifiStatus\":";
   json += HatchJson::quote(wifiStatus);
   json += ",";
   json += "\"ipAddress\":";
   json += HatchJson::quote(ipAddress);
+  json += ",\"firmwareBuild\":";
+  json += HatchJson::quote(String(__DATE__) + " " + __TIME__);
+  json += ",\"relayPins\":{\"bulb\":" + String(_heater.pin());
+  json += ",\"fan\":" + String(_fan.pin());
+  json += ",\"turner\":" + String(_turner.pin());
+  json += ",\"turner2\":" + String(_turner2.pin());
+  json += "}";
   json += ",";
   json += "\"history\":";
   json += _history.toJson();
@@ -221,13 +335,36 @@ String IncubatorController::buildStatusJson(
   json += HatchJson::boolValue(_heater.isOn());
   json += ",";
   json += "\"bulb2On\":";
-  json += HatchJson::boolValue(_bulb2.isOn());
+  json += HatchJson::boolValue(false); // Legacy field: no second heating relay.
   json += ",";
   json += "\"fanOn\":";
   json += HatchJson::boolValue(_fan.isOn());
+  json += ",\"heaterControl\":\"thermostat_hysteresis\"";
+  json += ",\"heaterDutyPercent\":";
+  json += "null"; // Legacy field: thermostat has no PID duty percentage.
+  json += ",\"heaterCycleSeconds\":0";
+  json += ",\"heaterOnBelow\":" + HatchJson::number(_settings.targetTemperatureC-HatchConfig::HeaterHysteresisC,1);
+  json += ",\"heaterOffAbove\":" + HatchJson::number(_settings.targetTemperatureC+HatchConfig::HeaterHysteresisC,1);
+  json += ",\"manualFanOn\":" + HatchJson::boolValue(_settings.fanOn);
+  json += ",\"manualBulbOn\":" + HatchJson::boolValue(_settings.heaterOn);
+  json += ",\"turnDurationSeconds\":" + String(_settings.turnDurationSeconds);
+  json += ",\"turnDuration2Seconds\":" + String(_settings.turnDuration2Seconds);
+  json += ",\"temperatureOffset\":" + HatchJson::number(_settings.temperatureOffsetC, 2);
+  json += ",\"turnQueued\":" + HatchJson::boolValue(_queuedMotor[0] || _preparingMotor==0);
+  json += ",\"turn2Queued\":" + HatchJson::boolValue(_queuedMotor[1] || _preparingMotor==1);
   json += ",";
   json += "\"turnerOn\":";
   json += HatchJson::boolValue(_turner.isOn());
+  json += ",\"turner2On\":" + HatchJson::boolValue(_turner2.isOn());
+  json += ",\"manualTurnerOn\":" + HatchJson::boolValue(_settings.turnerOn);
+  json += ",\"manualTurner2On\":" + HatchJson::boolValue(_settings.turner2On);
+  json += ",\"turnPulseSeconds\":" + String(HatchConfig::TurnerPulseMs / 1000);
+  json += ",\"manualTurnMinSeconds\":" + String(HatchConfig::MinManualTurnSeconds);
+  json += ",\"manualTurnMaxSeconds\":" + String(HatchConfig::MaxManualTurnSeconds);
+  json += ",\"turnPulseActive\":" + HatchJson::boolValue(_turnCycles[0].active);
+  json += ",\"turnPulse2Active\":" + HatchJson::boolValue(_turnCycles[1].active);
+  json += ",\"turnPulseRemainingSeconds\":" + String((_turnCycles[0].pulseRemainingMs(nowMs) + 999) / 1000);
+  json += ",\"turnPulse2RemainingSeconds\":" + String((_turnCycles[1].pulseRemainingMs(nowMs) + 999) / 1000);
   json += ",";
   json += "\"targetTemperature\":";
   json += HatchJson::number(_settings.targetTemperatureC, 1);
@@ -237,7 +374,8 @@ String IncubatorController::buildStatusJson(
   json += ",";
   json += "\"turnIntervalMinutes\":";
   json += String(_settings.turnIntervalMinutes);
-  json += "}}";
+  json += ",\"turnInterval2Minutes\":" + String(_settings.turnInterval2Minutes);
+  json += "},\"safety\":" + buildSafetyJson() + ",\"recovery\":"+buildRecoveryJson()+"}";
 
   return json;
 }
@@ -248,6 +386,16 @@ String IncubatorController::buildPredictionJson(
 ) const {
   String json = "{";
   json += "\"success\":";
+
+  // Bound batches use the restored device timestamp; browser dates cannot
+  // silently restart an incubation day after a reboot or an invalid RTC.
+  for(uint8_t i=0;i<2;++i) if(batchId.length() && batchId==_recoveryState.batches[i].id) {
+    if(!_recoveryReady || !_clock.isReady()) {
+      return "{\"success\":false,\"batchId\":"+HatchJson::quote(batchId)+
+        ",\"predictionStatus\":\"rtc_or_recovery_unavailable\",\"message\":\"Verify RTC and recovery state before calculating this batch day.\"}";
+    }
+    incubationDay=HatchRecovery::day(_recoveryState.batches[i],_clock.epoch());
+  }
 
   if (!isValidIncubationDay(incubationDay)) {
     json += HatchJson::boolValue(false);
@@ -348,95 +496,105 @@ void IncubatorController::readSensorIfDue(uint32_t nowMs) {
   _lastSensorReadMs = nowMs;
   _hasReadSensor = true;
 
-  const SensorReading reading = _sensor.read();
-  _lastReadingTimestamp = _clock.isReady() ? _clock.timestamp() : formatUptime(reading.timestampMs);
+  SensorReading reading = _sensor.read();
+  if (isfinite(reading.temperatureC)) reading.temperatureC += _settings.temperatureOffsetC;
+  if (!(reading.temperatureC >= -40 && reading.temperatureC <= 80)) {
+    if (reading.valid) reading.error = "Calibrated temperature is outside permitted range";
+    reading.valid = false;
+  }
+  const bool wasCritical = _safety.critical;
+  const bool wasValid = _currentReading.valid;
+  const bool wasHigh = _safety.high;
+  _safety.sample(reading.timestampMs, reading.valid, reading.temperatureC);
+  if (!_safety.heatAllowed(millis())) forceHeaterOff(millis());
+  if (!wasCritical && _safety.critical) {
+    stopTurnCycle(); _profile.value.flags |= 1; persistProfile();
+    logSystem("CRITICAL_TEMPERATURE","Persistent heater and motor lockout");
+  }
+  if(wasHigh!=_safety.high) logSystem("HIGH_TEMPERATURE",_safety.high?"alarm":"cleared");
+  if(wasValid!=reading.valid || (!reading.valid && reading.error!=_lastAnomaly))
+    logSystem(reading.valid?"SENSOR_RECOVERED":"SENSOR_FAULT",reading.valid?"Valid DHT22 sample":reading.error);
 
   if (reading.valid) {
+    _lastReadingTimestamp = _clock.isReady() ? _clock.timestamp() : formatUptime(reading.timestampMs);
     _currentReading = reading;
     _history.add(reading);
     _logger.logReading(
       _lastReadingTimestamp,
       reading,
       _settings,
-      _turningMetrics,
+      _turningMetrics[0],
+      _turningMetrics[1],
       _heater.isOn(),
-      _bulb2.isOn(),
       _fan.isOn(),
-      _turner.isOn()
+      _turner.isOn(),
+      _turner2.isOn()
     );
     _lastAnomaly = "None";
     return;
   }
 
-  if (
-    _currentReading.valid &&
-    nowMs - _currentReading.timestampMs <= HatchConfig::SensorStaleAfterMs
-  ) {
-    _lastAnomaly = reading.error;
-    return;
-  }
-
-  _currentReading = reading;
+  if (!_safety.sensorValid) _currentReading = reading;
   _lastAnomaly = reading.error;
 }
 
 void IncubatorController::updateOutputs(uint32_t nowMs) {
   updateTurnerPulse(nowMs);
 
-  if (_settings.autoMode) {
-    updateAutomaticOutputs();
-    maybeStartScheduledTurn(nowMs);
-  }
+  updateAutomaticOutputs(nowMs);
+  maybeStartScheduledTurn(nowMs);
 }
 
-void IncubatorController::updateAutomaticOutputs() {
-  if (!_currentReading.valid) {
-    _heater.set(false);
-    _bulb2.set(false);
-    _fan.set(false);
-    return;
-  }
-
-  const float temp = _currentReading.temperatureC;
-  const float humidity = _currentReading.humidityPercent;
-  const float targetTemp = _settings.targetTemperatureC;
-  const float targetHumidity = _settings.targetHumidityPercent;
-
-  if (temp < targetTemp - 0.3f) {
-    _heater.set(true);
-    _bulb2.set(true);
-  } else if (temp > targetTemp + 0.3f) {
-    _heater.set(false);
-    _bulb2.set(false);
-  }
-
-  _fan.set(temp > targetTemp + 0.5f || humidity > targetHumidity + 5.0f);
+void IncubatorController::updateAutomaticOutputs(uint32_t nowMs) {
+  _heater.set(_heaterControl.update(
+    nowMs, systemReady() && _safety.heatAllowed(nowMs),
+    _safety.lastTemperature, _settings.targetTemperatureC, _settings.autoMode, _settings.heaterOn
+  ));
+  _fan.set(_settings.autoMode || _settings.fanOn || _heater.isOn() || !_safety.ready(nowMs) ||
+    _safety.inhibited || _safety.high || _safety.critical);
 }
 
 void IncubatorController::updateTurnerPulse(uint32_t nowMs) {
-  if (_turnerStopMs == 0) {
-    return;
+  for (uint8_t index = 0; index < 2; ++index) {
+    if(!_turnCycles[index].active) continue;
+    if(!(_manualMotor[index] ? manualMotorAllowed(index,nowMs) : motorAllowed(index,nowMs))) stopTurnCycle(index+1);
+    else if(_turnCycles[index].pulseExpired(nowMs,_turnCycles[index].pulseDurationMs)) {
+      if (_manualMotor[index]) finishManualMotor(index);
+      else finishMotor(index);
+    }
   }
-
-  if (static_cast<int32_t>(nowMs - _turnerStopMs) < 0) {
-    return;
-  }
-
-  _turnerStopMs = 0;
-  _turner.set(_settings.autoMode ? false : _settings.turnerOn);
 }
 
 void IncubatorController::maybeStartScheduledTurn(uint32_t nowMs) {
-  if (_turnerStopMs != 0) {
+  if (_preparingMotor < 0 && HatchTurning::idle(_turnCycles[0].active,_turnCycles[1].active,nowMs,_motorOffMs))
+    for(uint8_t i=0;i<2;++i) if(_queuedMotor[i] && _queuedManual[i]) {
+      _queuedMotor[i]=false; _queuedManual[i]=false;
+      if(manualMotorAllowed(i,nowMs)) startManualMotor(i,_queuedPulseMs[i]);
+      return;
+    }
+  if (!_settings.autoMode) {
+    if (_preparingMotor >= 0 || !HatchTurning::idle(_turnCycles[0].active, _turnCycles[1].active, nowMs, _motorOffMs)) return;
+    for (uint8_t i=0;i<2;++i) if (_queuedMotor[i]) {
+      _queuedMotor[i]=false;
+      if (manualMotorAllowed(i,nowMs)) startManualMotor(i,_queuedPulseMs[i]);
+      return;
+    }
     return;
   }
-
-  const uint32_t intervalMs =
-    static_cast<uint32_t>(_settings.turnIntervalMinutes) * 60000UL;
-  const uint32_t baseMs = _hasTurned ? _lastTurnMs : _startedMs;
-
-  if (hasElapsed(nowMs, baseMs, intervalMs)) {
-    triggerTurnCycle();
+  if(_checkpointTicket || _preparingMotor>=0 || _checkpointFault) return;
+  if (!HatchTurning::idle(_turnCycles[0].active, _turnCycles[1].active, nowMs, _motorOffMs)) return;
+  const uint32_t epoch = _clock.epoch();
+  for (uint8_t attempt = 0; attempt < 2; ++attempt) {
+    const uint8_t index = (_preferredMotor + attempt) % 2;
+    if (!motorAllowed(index, nowMs)) { _queuedMotor[index] = false; continue; }
+    const bool due = _settings.autoMode && epoch>=_resumeTurnsAfter && epoch>=_recoveryState.motors[index].next;
+    if (_queuedMotor[index] || due) {
+      const uint32_t duration = _queuedMotor[index] ? _queuedPulseMs[index] :
+        _profile.value.duration[index] * 1000UL;
+      _queuedMotor[index] = false;
+      if (startMotor(index, duration)) _preferredMotor = 1 - index;
+      return;
+    }
   }
 }
 
@@ -449,62 +607,74 @@ void IncubatorController::refreshDisplayIfDue(uint32_t nowMs) {
   }
 
   _lastDisplayRefreshMs = nowMs;
+  String days="No batch on rollers", hatch="Est: unavailable";
+  uint8_t indices[2],count=0;
+  for (uint8_t i=0;i<2;++i) if (_recoveryState.batches[i].id[0]) indices[count++]=i;
+  if (count) {
+    const uint8_t i=indices[(nowMs/6000UL)%count];
+    const auto& batch=_recoveryState.batches[i];
+    days=String(i ? "Upper: " : "Lower: ")+ (batch.label[0] ? String(batch.label) : String(batch.id));
+    const int day=_recoveryReady && _clock.isReady() ? HatchRecovery::day(batch,_clock.epoch()) : 0;
+    if (day>0 && hasPredictionSensorReading())
+      hatch="Est: "+dateIso(addDays(_clock.now(),predictedDaysRemainingForDay(day)));
+  }
   _display.showStatus(
     _currentReading,
-    _turner.isOn(),
-    predictedHatchDateText()
+    _turner.isOn() || _turner2.isOn(),
+    hatch,
+    _safety.critical ? "CRITICAL: HEAT OFF" : !systemReady() ? "SAFETY HOLD" :
+    !_safety.ready(nowMs) ? "SENSOR: HEAT OFF" : _safety.high ? "HIGH TEMP: HEAT OFF" :
+    _safety.inhibited ? "COOLING: HEAT OFF" : _safety.low ? "LOW TEMP WARNING" : "",
+    days
   );
 }
 
-void IncubatorController::loadTurnMetrics() {
+void IncubatorController::loadTurnMetrics(uint8_t index) {
+  EggTurningMetrics& metrics = _turningMetrics[index];
   Preferences preferences;
-  preferences.begin(TurnMetricsNamespace, true);
-  _turningMetrics.totalTurns = preferences.getULong("total", 0);
-  _turningMetrics.turnsToday = preferences.getUShort("today", 0);
-  _turningMetrics.actualTurnIntervalMinutes = preferences.getUShort("interval", 0);
-  _turningMetrics.lastTurnTimestamp = preferences.getString("last", "None");
-  _turnMetricsDateKey = preferences.getString("date", "");
+  preferences.begin(TurnMetricsNamespaces[index], true);
+  metrics.totalTurns = preferences.getULong("total", 0);
+  metrics.turnsToday = preferences.getUShort("today", 0);
+  metrics.actualTurnIntervalMinutes = preferences.getUShort("interval", 0);
+  metrics.lastTurnTimestamp = preferences.getString("last", "None");
+  _turnMetricsDateKey[index] = preferences.getString("date", "");
   preferences.end();
 
-  refreshTurnMetricsDate();
+  refreshTurnMetricsDate(index);
 }
 
-void IncubatorController::persistTurnMetrics() const {
+void IncubatorController::persistTurnMetrics(uint8_t index) const {
+  const EggTurningMetrics& metrics = _turningMetrics[index];
   Preferences preferences;
-  preferences.begin(TurnMetricsNamespace, false);
-  preferences.putULong("total", _turningMetrics.totalTurns);
-  preferences.putUShort("today", _turningMetrics.turnsToday);
-  preferences.putUShort("interval", _turningMetrics.actualTurnIntervalMinutes);
-  preferences.putString("last", _turningMetrics.lastTurnTimestamp);
-  preferences.putString("date", _turnMetricsDateKey);
+  preferences.begin(TurnMetricsNamespaces[index], false);
+  preferences.putULong("total", metrics.totalTurns);
+  preferences.putUShort("today", metrics.turnsToday);
+  preferences.putUShort("interval", metrics.actualTurnIntervalMinutes);
+  preferences.putString("last", metrics.lastTurnTimestamp);
+  preferences.putString("date", _turnMetricsDateKey[index]);
   preferences.end();
 }
 
-void IncubatorController::refreshTurnMetricsDate() {
+void IncubatorController::refreshTurnMetricsDate(uint8_t index) {
+  // Preserve persisted daily counts while the RTC validates after a restart.
+  if (!_clock.isReady()) return;
   const String currentDateKey = turnDateKey();
 
-  if (_turnMetricsDateKey != currentDateKey) {
-    _turnMetricsDateKey = currentDateKey;
-    _turningMetrics.turnsToday = 0;
-    persistTurnMetrics();
+  if (_turnMetricsDateKey[index] != currentDateKey) {
+    _turnMetricsDateKey[index] = currentDateKey;
+    _turningMetrics[index].turnsToday = 0;
+    persistTurnMetrics(index);
   }
 }
 
-void IncubatorController::recordTurnEvent(uint32_t nowMs) {
-  refreshTurnMetricsDate();
-
-  if (_hasTurned) {
-    _turningMetrics.actualTurnIntervalMinutes =
-      static_cast<uint16_t>((nowMs - _lastTurnMs + 30000UL) / 60000UL);
-  }
-
-  _lastTurnMs = nowMs;
-  _hasTurned = true;
-  _turningMetrics.totalTurns++;
-  _turningMetrics.turnsToday++;
-  _turningMetrics.lastTurnTimestamp =
+void IncubatorController::recordTurnEvent(uint32_t nowMs, uint8_t index) {
+  refreshTurnMetricsDate(index);
+  EggTurningMetrics& metrics = _turningMetrics[index];
+  metrics.totalTurns++;
+  metrics.turnsToday++;
+  metrics.lastTurnTimestamp =
     _clock.isReady() ? _clock.timestamp() : formatUptime(nowMs);
-  persistTurnMetrics();
+  persistTurnMetrics(index);
 }
 
 String IncubatorController::turnDateKey() const {
@@ -522,7 +692,10 @@ String IncubatorController::turnDateKey() const {
 }
 
 int IncubatorController::incubationDay() const {
-  return static_cast<int>((millis() - _startedMs) / 86400000UL);
+  if(!_recoveryReady || !_clock.isReady()) return 0;
+  for(uint8_t i=0;i<2;++i) if(_recoveryState.batches[i].status==HatchRecovery::BatchStatus::Active)
+    return int(HatchRecovery::day(_recoveryState.batches[i],_clock.epoch()));
+  return 0;
 }
 
 int IncubatorController::predictedHatchDay() const {
@@ -531,7 +704,7 @@ int IncubatorController::predictedHatchDay() const {
 }
 
 int IncubatorController::predictedDaysRemaining() const {
-  return predictedDaysRemainingForDay(incubationDay());
+  const int day=incubationDay(); return day>0 ? predictedDaysRemainingForDay(day) : 0;
 }
 
 int IncubatorController::predictedDaysRemainingForDay(int batchIncubationDay) const {
@@ -750,15 +923,308 @@ String IncubatorController::formatUptime(uint32_t timestampMs) const {
   return String(buffer);
 }
 
-uint32_t IncubatorController::nextTurnInMs(uint32_t nowMs) const {
-  const uint32_t intervalMs =
-    static_cast<uint32_t>(_settings.turnIntervalMinutes) * 60000UL;
-  const uint32_t baseMs = _hasTurned ? _lastTurnMs : _startedMs;
-  const uint32_t elapsedMs = nowMs - baseMs;
+OutputDevice& IncubatorController::motorOutput(uint8_t index) const {
+  return index == 0 ? _turner : _turner2;
+}
 
-  if (elapsedMs >= intervalMs) {
-    return 0;
+uint16_t IncubatorController::motorInterval(uint8_t index) const {
+  return index == 0 ? _settings.turnIntervalMinutes : _settings.turnInterval2Minutes;
+}
+
+uint32_t IncubatorController::nextTurnInMs(uint32_t nowMs, uint8_t index) const {
+  if (!motorAllowed(index, nowMs)) return 0;
+  const uint32_t next=_recoveryState.motors[index].next, now=_clock.epoch();
+  return next<=now ? 0 : min(uint32_t(21600),next-now)*1000UL;
+}
+
+void IncubatorController::forceHeaterOff(uint32_t nowMs) {
+  _heater.set(false); _heaterControl.reset(nowMs);
+}
+bool IncubatorController::persistProfile() {
+  if (_profile.save()) { requestStateSave(); return true; }
+  forceHeaterOff(millis()); stopTurnCycle(); return false;
+}
+bool IncubatorController::systemReady() const {
+  return _profile.healthy && _watchdog.healthy && !_watchdog.recoveryRequired;
+}
+void IncubatorController::completeLoop() {
+  if (!_watchdog.feed()) { forceHeaterOff(millis()); stopTurnCycle(); _fan.set(true); }
+}
+bool IncubatorController::acknowledgeAlarm() {
+  if (!_profile.healthy || !_recoveryGuard.healthy || !_recoveryReady || !_watchdog.healthy || !_safety.ready(millis()) ||
+      _safety.lastTemperature > HatchConfig::HeaterResumeC) return false;
+  const bool wasCritical = _safety.critical;
+  if (!_safety.acknowledge(millis())) return false;
+  _profile.value.flags &= ~5UL;
+  if (!persistProfile()) { _safety.critical = wasCritical; return false; }
+  _watchdog.recoveryRequired = false;
+  forceHeaterOff(millis()); return true;
+}
+bool IncubatorController::setTurningArmed(bool armed) {
+  if (!armed) {
+    stopTurnCycle(); _profile.value.flags &= ~2UL; return persistProfile();
   }
-
-  return intervalMs - elapsedMs;
+  if (!systemReady() || _checkpointFault || _recoveryGuard.value.uncertainMask || !_logger.isReady() || !_safety.ready(millis()) || _safety.critical || !_clock.isReady() ||
+      (!_profile.value.active[0] && !_profile.value.active[1])) return false;
+  for (uint8_t i = 0; i < 2; ++i) {
+    if (_profile.value.active[i] && (_profile.value.start[i] > _clock.epoch() ||
+        _profile.value.reserved[i] > _clock.epoch())) return false;
+  }
+  _profile.value.flags |= 2; return persistProfile();
+}
+bool IncubatorController::setClock(const String& iso) {
+  if (_profile.value.flags & 2) return false;
+  if(iso.length()!=19) return false;
+  const uint32_t proposed=HatchCalendar::epoch(iso.substring(0,4).toInt(),iso.substring(5,7).toInt(),iso.substring(8,10).toInt(),
+    iso.substring(11,13).toInt(),iso.substring(14,16).toInt(),iso.substring(17,19).toInt());
+  if(!proposed || proposed<_recoveryGuard.value.lastRtc || proposed<_startupEpoch) return false;
+  stopTurnCycle(); forceHeaterOff(millis());
+  const bool set=_clock.setIsoTime(iso); if(set) { _clockReviewed=true; requestStateSave(); logSystem("CLOCK_SET","Operator corrected local RTC time"); }
+  return set;
+}
+bool IncubatorController::autoSyncClock(const String& iso) {
+  if(_clock.isReady()) return true;
+  if(_turnCycles[0].active || _turnCycles[1].active || _preparingMotor>=0) return false;
+  const uint32_t stamp=localEpoch(iso);
+  if(!stamp || stamp<_recoveryGuard.value.lastRtc || stamp<_startupEpoch || !_profile.healthy) return false;
+  const uint32_t flags=_profile.value.flags;
+  stopTurnCycle();
+  _profile.value.flags&=~2UL;
+  const bool ok=setClock(iso);
+  _profile.value.flags=flags;
+  if(ok) { _resumeTurnsAfter=stamp+HatchConfig::RecoveryResumeTurnDelaySeconds; persistProfile(); }
+  return ok;
+}
+bool IncubatorController::bindBatch(uint8_t motor, const String& id, const String& date, bool active,
+    const String& time,uint16_t durationDays,const String& status,const String& turningEnd) {
+  if (!_profile.healthy || !_recoveryReady || motor < 1 || motor > 2 || id.length() > 48 || durationDays<19 || durationDays>35) return false;
+  const uint8_t i = motor - 1;
+  uint32_t start = 0;
+  if (id.length()) {
+    for(size_t p=0;p<id.length();++p) {
+      const char c=id[p];
+      if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'||c==':')) return false;
+    }
+    if (date.length() != 10 || date[4] != '-' || date[7] != '-') return false;
+    for (uint8_t p = 0; p < 10; ++p)
+      if (p != 4 && p != 7 && (date[p] < '0' || date[p] > '9')) return false;
+    if(time.length()!=8 || time[2]!=':' || time[5]!=':') return false;
+    for(uint8_t p=0;p<8;++p) if(p!=2 && p!=5 && (time[p]<'0' || time[p]>'9')) return false;
+    start = HatchCalendar::epoch(date.substring(0,4).toInt(), date.substring(5,7).toInt(), date.substring(8,10).toInt(),
+      time.substring(0,2).toInt(),time.substring(3,5).toInt(),time.substring(6,8).toInt());
+    if (!start) return false;
+    if (!_batchEditInProgress && id == String(_profile.value.batchId[1-i])) return false;
+  }
+  HatchRecovery::BatchStatus phase = id.length() ? active ? HatchRecovery::BatchStatus::Active : HatchRecovery::BatchStatus::Paused : HatchRecovery::BatchStatus::Empty;
+  if(status.length()) {
+    if(status=="Active") phase=HatchRecovery::BatchStatus::Active;
+    else if(status=="Paused") phase=HatchRecovery::BatchStatus::Paused;
+    else if(status=="Completed") phase=HatchRecovery::BatchStatus::Completed;
+    else if(status=="Failed") phase=HatchRecovery::BatchStatus::Failed;
+    else return false;
+    if(active!=(phase==HatchRecovery::BatchStatus::Active)) return false;
+  }
+  const uint32_t stop=id.length() ? turningEnd.length() ? localEpoch(turningEnd) :
+    (id==String(_profile.value.batchId[i]) && start==_profile.value.start[i] ? _profile.value.turningEnd[i] : 0) : 0;
+  if(id.length() && ((turningEnd.length() && !stop) || (stop && (stop<start || stop>start+HatchConfig::LockdownAfterSeconds)))) return false;
+  const bool changed = stop!=_profile.value.turningEnd[i] || id != String(_profile.value.batchId[i]) || start != _profile.value.start[i] || durationDays!=_recoveryState.batches[i].durationDays;
+  const bool stateChanged = phase!=_recoveryState.batches[i].status;
+  if (!changed && !stateChanged) return true;
+  if (id.length() && (changed || active) && (!_clock.isReady() || start > _clock.epoch())) return false;
+  stopTurnCycle(i + 1);
+  // Changes to batch age require deliberate re-arming; no automatic motion on edit.
+  if (changed) { stopTurnCycle(); _profile.value.flags &= ~2UL; }
+  if (changed) {
+    const auto previousBatch=_recoveryState.batches[i];
+    id.toCharArray(_profile.value.batchId[i], sizeof(_profile.value.batchId[i]));
+    _profile.value.start[i] = start;
+    _profile.value.reserved[i] = start ? _clock.epoch() : 0;
+    const bool positionHold=_recoveryState.motors[i].positionHold || (_recoveryGuard.value.uncertainMask&(1<<i));
+    _recoveryState.batches[i]=HatchRecovery::Batch();
+    if(id.length() && id==previousBatch.id) {
+      strcpy(_recoveryState.batches[i].label,previousBatch.label);
+      strcpy(_recoveryState.batches[i].name,previousBatch.name);
+      _recoveryState.batches[i].eggCount=previousBatch.eggCount;
+    }
+    _recoveryState.motors[i]=HatchRecovery::Motor();
+    _recoveryState.motors[i].positionHold=positionHold;
+    if(start) {
+      _recoveryState.motors[i].cycle=_recoveryGuard.value.serial[i];
+      _recoveryState.motors[i].next=_clock.epoch()+uint32_t(motorInterval(i))*60;
+    }
+  }
+  auto& batch=_recoveryState.batches[i];
+  id.toCharArray(batch.id,sizeof(batch.id)); batch.start=start; batch.turningEnd=stop; batch.durationDays=durationDays; batch.status=phase;
+  _profile.value.turningEnd[i]=stop;
+  if(stateChanged && phase==HatchRecovery::BatchStatus::Active)
+    _recoveryState.motors[i].next=_clock.epoch()+uint32_t(motorInterval(i))*60;
+  _profile.value.active[i] = phase==HatchRecovery::BatchStatus::Active && id.length();
+  _recoveryGuard.value.periodDays[i]=durationDays; _recoveryGuard.value.batchStatus[i]=uint8_t(phase);
+  _seenLockdown[i]=start && _clock.epoch()>=HatchRecovery::lockdown(batch);
+  logSystem("BATCH_STATE",String(motor)+"; "+HatchRecovery::batchText(phase));
+  requestStateSave();
+  return _batchEditInProgress || (persistProfile() && _recoveryGuard.save());
+}
+bool IncubatorController::updateBoundBatch(const String& id,const String& date,bool active,
+    const String& time,uint16_t durationDays,const String& status,uint8_t roller,const String& turningEnd) {
+  if(!id.length() || roller>3 || !_recoveryReady || _batchEditInProgress) return false;
+  uint8_t current=0;
+  for(uint8_t i=0;i<2;++i) if(id==String(_profile.value.batchId[i])) current|=1<<i;
+  const uint8_t desired=roller ? roller : current;
+  if(!desired) return true;
+  for(uint8_t i=0;i<2;++i) if((desired&(1<<i)) && _profile.value.active[i] &&
+      id!=String(_profile.value.batchId[i])) return false;
+  const auto savedProfile=_profile.value; const auto savedState=_recoveryState; const auto savedGuard=_recoveryGuard.value;
+  _batchEditInProgress=true;
+  bool ok=true;
+  for(uint8_t i=0;i<2 && ok;++i) if((current&(1<<i)) && !(desired&(1<<i))) ok=bindBatch(i+1,"","",false);
+  for(uint8_t i=0;i<2 && ok;++i) if(desired&(1<<i)) ok=bindBatch(i+1,id,date,active,time,durationDays,status,turningEnd);
+  _batchEditInProgress=false;
+  if(!ok) { _profile.value=savedProfile; _recoveryState=savedState; _recoveryGuard.value=savedGuard; return false; }
+  // Saving an active batch enables its schedule without a second setup button.
+  // Sensor, cutoff, journal and verified SD checks still guard every start.
+  if(active) _profile.value.flags|=2;
+  requestStateSave(); return persistProfile() && _recoveryGuard.save();
+}
+bool IncubatorController::updateBatchMetadata(const String& id,const String& label,const String& name,uint16_t eggs) {
+  if(label.length()>30 || name.length()>64 || eggs>1000) return false;
+  for(uint8_t i=0;i<2;++i) if(id.length() && id==_recoveryState.batches[i].id) {
+    auto& b=_recoveryState.batches[i]; label.toCharArray(b.label,sizeof(b.label)); name.toCharArray(b.name,sizeof(b.name));
+    b.eggCount=eggs; requestStateSave();
+  }
+  return true;
+}
+bool IncubatorController::motorAllowed(uint8_t i, uint32_t nowMs) const {
+  const DeviceProfile& p = _profile.value;
+  const uint32_t epoch = _clock.epoch();
+  const auto storage=_logger.storage().status();
+  return systemReady() && _recoveryGuard.healthy && _recoveryReady && !_checkpointFault && HatchRecovery::journalAllows(_recoveryGuard.value.uncertainMask,i,_preparingMotor==i,_turnCycles[i].active) &&
+    !_recoveryState.motors[i].positionHold && storage.available && storage.logging &&
+    uint32_t(nowMs-storage.heartbeat)<=HatchConfig::RecoveryCommitTimeoutMs && _safety.ready(nowMs) && !_safety.critical && (p.flags & 2) &&
+    p.active[i] && HatchTurning::ageAllowed(epoch, p.start[i], p.reserved[i],p.turningEnd[i]);
+}
+bool IncubatorController::manualMotorAllowed(uint8_t i, uint32_t nowMs) const {
+  const auto& p=_profile.value;
+  // Explicit bounded manual motion does not depend on SD, automatic arming,
+  // or an unassigned roller's calendar. Durable NVS intent still precedes ON.
+  return systemReady() && _recoveryGuard.healthy && _safety.ready(nowMs) && !_safety.critical &&
+    HatchRecovery::journalAllows(_recoveryGuard.value.uncertainMask,i,false,_manualMotor[i]) &&
+    !_recoveryState.motors[i].positionHold &&
+    (!p.batchId[i][0] || (p.active[i] && _clock.isReady() &&
+      HatchTurning::ageAllowed(_clock.epoch(),p.start[i],p.reserved[i],p.turningEnd[i])));
+}
+bool IncubatorController::startManualMotor(uint8_t i,uint32_t pulseMs) {
+  if (!manualMotorAllowed(i,millis()) || _recoveryGuard.value.serial[i]==UINT32_MAX) return false;
+  ++_recoveryGuard.value.serial[i];
+  _recoveryGuard.value.uncertainMask|=1<<i;
+  if (!_recoveryGuard.save()) return false;
+  _manualMotor[i]=true;
+  _turnCycles[i].start(millis(),pulseMs); motorOutput(i).set(true);
+  logSystem("MANUAL_TURN_STARTED",String(i+1)); return true;
+}
+void IncubatorController::finishManualMotor(uint8_t i) {
+  motorOutput(i).set(false); _turnCycles[i].active=false; _manualMotor[i]=false; _motorOffMs=millis();
+  if (_recoveryReady && _profile.value.batchId[i][0]) {
+    auto& m=_recoveryState.motors[i]; m.cycle=_recoveryGuard.value.serial[i];
+    m.transaction=HatchRecovery::Transaction::Completed; m.issued=m.completed=_clock.epoch();
+    m.lastSuccessfulCycle=m.cycle; m.next=m.completed+uint32_t(motorInterval(i))*60;
+    _profile.value.reserved[i]=m.completed; persistProfile(); requestStateSave();
+  }
+  _recoveryGuard.value.uncertainMask&=~(1<<i);
+  if (!_recoveryGuard.save()) _recoveryState.motors[i].positionHold=true;
+  recordTurnEvent(millis(),i); logSystem("MANUAL_TURN_COMPLETED",String(i+1));
+}
+bool IncubatorController::startMotor(uint8_t i, uint32_t pulseMs) {
+  if (!HatchTurning::idle(_turnCycles[0].active, _turnCycles[1].active, millis(), _motorOffMs) ||
+      !motorAllowed(i, millis())) return false;
+  if(_checkpointTicket || _preparingMotor>=0 || _recoveryGuard.value.serial[i]==UINT32_MAX) return false;
+  auto& m=_recoveryState.motors[i];
+  m.cycle=++_recoveryGuard.value.serial[i]; m.issued=_clock.epoch();
+  m.transaction=HatchRecovery::Transaction::Pending; m.next=m.issued+uint32_t(motorInterval(i))*60;
+  _recoveryGuard.value.uncertainMask|=1<<i; _recoveryGuard.value.lastRtc=m.issued;
+  if(!_recoveryGuard.save()) { forceHeaterOff(millis()); stopTurnCycle(); return false; }
+  _profile.value.reserved[i]=m.issued;
+  _preparingMotor=i; _preparingPulseMs=pulseMs;
+  if(!persistProfile() || !requestCheckpoint(CommitPurpose::Pending)) { stopTurnCycle(i+1); return false; }
+  logMotor(i,"durable_pending_requested"); return true;
+}
+String IncubatorController::safetyMessage() const {
+  if (_safety.critical) return "Critical temperature alarm: heater and turners OFF. Acknowledge after cooling.";
+  if(!_recoveryGuard.healthy) return "Recovery journal fault: turning held OFF; temperature control remains sensor protected.";
+  if (!_profile.healthy) return "Storage fault: heater and turners OFF. Service ESP32 storage.";
+  if (!_watchdog.healthy) return "Watchdog fault: heater and turners OFF.";
+  if (_watchdog.recoveryRequired) return "Restart safety hold: check power and acknowledge to resume.";
+  if(!_recoveryReady || _checkpointFault || !_logger.isReady()) return "SD recovery/logging fault: turning held OFF; validated temperature control may continue.";
+  if (!_safety.ready(millis())) return "Heater OFF: waiting for three stable valid sensor readings.";
+  if (_safety.high) return "High temperature alarm: heater OFF; fan remains ON.";
+  if (_safety.inhibited) return "Cooling hold: heater OFF until temperature is at most 37.5 C.";
+  if (_safety.low) return "Low temperature warning: check bulb, door and room temperature.";
+  return "Temperature safety checks passed.";
+}
+String IncubatorController::turnState(uint8_t i) const {
+  if (!_settings.autoMode) {
+    if (_turnCycles[i].active) return "Timed manual run";
+    if (_queuedMotor[i]) return "Queued manual run";
+    if (manualMotorAllowed(i,millis())) return "Manual ready";
+    if (_recoveryGuard.value.uncertainMask || _recoveryState.motors[i].positionHold) return "Verify interrupted motor position";
+    if (!_safety.ready(millis())) return "Waiting for stable sensor readings";
+    if (_profile.value.batchId[i][0] && (!_profile.value.active[i] || !_clock.isReady() ||
+        !HatchTurning::ageAllowed(_clock.epoch(),_profile.value.start[i],_profile.value.reserved[i],_profile.value.turningEnd[i]))) return "Check batch status, clock or lockdown";
+    return "Temperature, watchdog or internal storage hold";
+  }
+  if(!_recoveryReady) return "Recovery hold";
+  if(_recoveryState.motors[i].positionHold) return "Verify motor position before resuming";
+  if(_recoveryState.motors[0].positionHold || _recoveryState.motors[1].positionHold) return "Turning held until interrupted motor position is checked";
+  if(_checkpointFault || !_logger.isReady()) return "SD checkpoint/logging hold";
+  if (!_profile.healthy || !_watchdog.healthy || _safety.critical || _watchdog.recoveryRequired) return "Safety hold";
+  if (!(_profile.value.flags & 2)) return "Disabled";
+  if (!_clock.isReady()) return "Set clock / RTC unavailable";
+  if (!_profile.value.start[i]) return "Choose a batch";
+  if (!_profile.value.active[i]) return "Batch paused / completed";
+  if (_clock.epoch() < _profile.value.reserved[i] || _clock.epoch() < _profile.value.start[i]) return "Check clock and batch date";
+  if (_clock.epoch() >= (_profile.value.turningEnd[i] ? _profile.value.turningEnd[i] : _profile.value.start[i]+HatchConfig::LockdownAfterSeconds)) return "Lockdown: turning stopped";
+  if (!_safety.ready(millis())) return "Sensor safety hold";
+  if (_turnCycles[i].active) return "Turning";
+  if (_queuedMotor[i] || _preparingMotor==i) return "Queued / verifying durable turn intent";
+  return _settings.autoMode ? "Scheduled" : "Manual ready";
+}
+String IncubatorController::buildSafetyJson() const {
+  String json = "{\"version\":2,\"message\":" + HatchJson::quote(safetyMessage());
+  json += ",\"level\":" + HatchJson::quote(_safety.critical || !systemReady() ? "critical" :
+    !_safety.ready(millis()) || _safety.inhibited || _safety.high || _safety.low || !_clock.isReady() ||
+    _checkpointFault || !_logger.isReady() || _recoveryState.motors[0].positionHold || _recoveryState.motors[1].positionHold ? "warning" : "ok");
+  json += ",\"critical\":" + HatchJson::boolValue(_safety.critical);
+  json += ",\"resetAckRequired\":" + HatchJson::boolValue(_watchdog.recoveryRequired);
+  json += ",\"sensorReady\":" + HatchJson::boolValue(_safety.ready(millis()));
+  json += ",\"canAcknowledge\":" + HatchJson::boolValue(_profile.healthy && _recoveryGuard.healthy && _recoveryReady && _watchdog.healthy &&
+    _safety.ready(millis()) && _safety.lastTemperature <= HatchConfig::HeaterResumeC);
+  json += ",\"turningArmed\":" + HatchJson::boolValue((_profile.value.flags & 2) != 0);
+  json += ",\"rtcTrusted\":" + HatchJson::boolValue(_clock.isReady());
+  json += ",\"storageReady\":" + HatchJson::boolValue(_profile.healthy);
+  json += ",\"watchdogReady\":" + HatchJson::boolValue(_watchdog.healthy);
+  json += ",\"batches\":[";
+  for (uint8_t i = 0; i < 2; ++i) {
+    if (i) json += ',';
+    json += "{\"motor\":" + String(i+1) + ",\"batchId\":" + HatchJson::quote(_profile.value.batchId[i]);
+    json += ",\"startEpoch\":" + String(_profile.value.start[i]);
+    json += ",\"active\":" + HatchJson::boolValue(_profile.value.active[i]);
+    const auto& batch=_recoveryState.batches[i]; const auto& transaction=_recoveryState.motors[i];
+    json += ",\"durationDays\":"+String(batch.durationDays)+",\"batchStatus\":"+HatchJson::quote(HatchRecovery::batchText(batch.status));
+    json += ",\"label\":"+HatchJson::quote(batch.label)+",\"name\":"+HatchJson::quote(batch.name)+",\"eggCount\":"+String(batch.eggCount);
+    json += ",\"incubationDay\":"; json += _clock.isReady() && _recoveryReady ? String(HatchRecovery::day(batch,_clock.epoch())) : String("null");
+    json += ",\"expectedHatchEpoch\":"+String(batch.start?HatchRecovery::end(batch):0);
+    json += ",\"turningEndEpoch\":"+String(batch.start?HatchRecovery::lockdown(batch):0);
+    json += ",\"lockdownEpoch\":"+String(batch.start?HatchRecovery::lockdown(batch):0);
+    json += ",\"nextTurnEpoch\":"+String(transaction.next)+",\"lastCompletedTurnEpoch\":"+String(transaction.completed);
+    json += ",\"transaction\":"+HatchJson::quote(HatchRecovery::transactionText(transaction.transaction));
+    json += ",\"cycleId\":"+String(transaction.cycle)+",\"lastSuccessfulCycleId\":"+String(transaction.lastSuccessfulCycle);
+    json += ",\"positionHold\":"+HatchJson::boolValue(transaction.positionHold);
+    json += ",\"status\":" + HatchJson::quote(turnState(i));
+    json += ",\"canRun\":" + HatchJson::boolValue(_settings.autoMode ? motorAllowed(i, millis()) : manualMotorAllowed(i,millis()));
+    json += ",\"canManualRun\":" + HatchJson::boolValue(manualMotorAllowed(i,millis()));
+    json += ",\"nextTurnSeconds\":";
+    json += motorAllowed(i, millis()) ? String(nextTurnInMs(millis(), i) / 1000) : String("null");
+    json += '}';
+  }
+  return json + "]}";
 }

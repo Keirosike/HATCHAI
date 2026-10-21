@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="css/components.css" />
   <link rel="stylesheet" href="css/modal.css" />
   <link rel="stylesheet" href="css/toastNotification.css" />
-  <link rel="stylesheet" href="css/control.css" />
+  <link rel="stylesheet" href="css/control.css?v=20261022-sync" />
 </head>
 
 <body>
@@ -54,7 +54,7 @@
     <section class="topbar">
       <div class="title">
         <h1>Incubator Control</h1>
-        <p>Manage automatic mode and manual device controls.</p>
+        <p>Temperature, airflow and two batch turners.</p>
       </div>
 
       <div class="badge" id="controlStatusBadge">Auto Mode: ON</div>
@@ -64,84 +64,70 @@
       <div class="card-header">
         <div>
           <h2 class="card-title">Automatic Control Mode</h2>
-          <p class="subtext">When Auto Mode is ON, HatchAI controls the bulb, fan, and egg turner automatically.</p>
+          <p class="subtext" id="autoDescription">Thermostat maintains the temperature. Each enabled batch follows its saved turning schedule.</p>
         </div>
 
         <label class="switch">
-          <input type="checkbox" id="autoModeSwitch" checked />
+          <input type="checkbox" id="autoModeSwitch" aria-label="Automatic control mode" checked />
           <span class="slider"></span>
         </label>
       </div>
 
-      <div class="auto-row">
-        <div>
-          <div class="auto-state" id="autoStateText">Auto ON</div>
-          <p class="subtext" id="autoDescription">Manual controls are locked while automatic mode is active.</p>
-        </div>
-
-        <span class="status-pill status-ok" id="lockBadge">Manual Controls Locked</span>
-      </div>
+      <span class="status-pill status-ok" id="lockBadge">Connecting</span>
     </section>
 
+    <p id="controlNotice" class="control-note" role="status" aria-live="polite">Connecting to controller...</p>
     <section class="control-layout">
-      <div class="control-main">
-        <section class="control-grid" aria-label="Manual device controls">
-          <article class="control-item locked" id="bulbCard">
+      <section class="card climate-card" aria-labelledby="climateTitle">
+        <h2 class="card-title" id="climateTitle">Temperature &amp; airflow</h2>
+        <div class="settings-grid">
+          <div class="field">
+            <label for="targetTemp">Target temperature (°C)</label>
+            <input type="text" inputmode="decimal" id="targetTemp" value="37.5&deg;C" />
+          </div>
+          <div class="field">
+            <label for="targetHumidity">Target humidity (%)</label>
+            <input type="text" inputmode="decimal" id="targetHumidity" value="55%" />
+          </div>
+        </div>
+        <div class="climate-devices" aria-label="Heating and circulation controls">
+          <article class="control-item" id="bulbCard">
             <div class="control-top">
-              <h2 class="control-name">Heating Bulbs</h2>
+              <h2 class="control-name">Bulb</h2>
               <label class="switch">
-                <input type="checkbox" id="bulbSwitch" checked disabled />
+                <input type="checkbox" id="bulbSwitch" aria-label="Heating bulb manual control" disabled />
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="bulbText">Auto-controlled by temperature target</p>
+            <p class="subtext" id="bulbText">Thermostat with a 0.3°C band on each side of the target</p>
+            <p class="device-meta">Relay: <strong id="bulbActualState">Unknown</strong> · Control: <strong id="heaterDemandValue">Unknown</strong></p>
           </article>
 
-          <article class="control-item locked" id="fanCard">
+          <article class="control-item" id="fanCard">
             <div class="control-top">
               <h2 class="control-name">Fan</h2>
               <label class="switch">
-                <input type="checkbox" id="fanSwitch" checked disabled />
+                <input type="checkbox" id="fanSwitch" aria-label="Fan manual request" disabled />
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="fanText">Auto-controlled for air circulation</p>
+            <p class="subtext" id="fanText">Automatic circulation; manual OFF is overridden during heating or faults.</p>
           </article>
+        </div>
+      </section>
 
-          <article class="control-item locked" id="turnerCard">
+          <section class="card motor-card" id="turnerCard" aria-labelledby="turnerTitle">
             <div class="control-top">
-              <h2 class="control-name">Egg Turner</h2>
+              <h2 class="card-title" id="turnerTitle">Lower roller · No batch</h2>
               <label class="switch">
-                <input type="checkbox" id="turnerSwitch" checked disabled />
+                <input type="checkbox" id="turnerSwitch" aria-label="Lower roller timed manual control" disabled />
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="turnerText">Auto-controlled by turning interval</p>
-          </article>
-        </section>
-
-        <section class="card settings-card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Control Settings</h2>
-              <p class="subtext">Targets used when automatic mode is enabled.</p>
-            </div>
-            <div class="icon-box">C</div>
-          </div>
-
-          <div class="settings-grid">
+            <p class="subtext" id="turnerText">15 seconds every 2 hours by default</p>
+            <div class="settings-grid">
             <div class="field">
-              <label for="targetTemp">Target Temperature</label>
-              <input type="text" id="targetTemp" value="37.8&deg;C" />
-            </div>
-
-            <div class="field">
-              <label for="targetHumidity">Target Humidity</label>
-              <input type="text" id="targetHumidity" value="58%" />
-            </div>
-
-            <div class="field">
-              <label for="turnInterval">Turn Interval</label>
+              <label for="turnInterval">Turning interval</label>
               <select id="turnInterval">
                 <option value="30">Every 30 minutes</option>
                 <option value="60">Every 1 hour</option>
@@ -151,44 +137,67 @@
                 <option value="360">Every 6 hours</option>
               </select>
             </div>
-          </div>
+            <div class="field">
+              <label for="turnDuration1">Run duration (seconds)</label>
+              <input id="turnDuration1" type="number" inputmode="numeric" min="1" max="600" step="1" value="15" aria-describedby="turnDuration1Error" disabled />
+              <span id="turnDuration1Error" class="field-error" role="alert"></span>
+            </div>
+            </div>
+            <div class="motor-actions">
+              <button class="btn btn-soft" type="button" id="turnEggBtn" disabled>Run lower roller</button>
+              <button class="btn btn-soft" type="button" id="stopEggBtn" aria-label="Stop motor 1" disabled>Stop</button>
+            </div>
+          </section>
 
-          <div class="actions-row">
-            <button class="btn btn-primary" type="button" id="saveControlSettingsBtn">Save Settings</button>
-            <button class="btn btn-soft" type="button" id="turnEggBtn" disabled>Turn Eggs Now</button>
-          </div>
-        </section>
-      </div>
-
-      <aside class="card">
-        <div class="card-header">
-          <div>
-            <h2 class="card-title">Control Summary</h2>
-            <p class="subtext">Current device state for one incubator.</p>
-          </div>
-          <div class="icon-box">S</div>
-        </div>
-
-        <ul class="summary-list">
-          <li><span>Auto mode</span> <strong id="summaryAuto">ON</strong></li>
-          <li><span>Heating bulbs</span> <strong id="summaryBulb">Auto</strong></li>
-          <li><span>Fan</span> <strong id="summaryFan">Auto</strong></li>
-          <li><span>Egg turner</span> <strong id="summaryTurner">Auto</strong></li>
-          <li><span>Manual controls</span> <strong id="summaryLock">Locked</strong></li>
-          <li><span>Last manual turn</span> <strong id="lastTurnValue">None</strong></li>
-          <li><span>Settings status</span> <strong id="settingsStatus">Saved</strong></li>
-        </ul>
-      </aside>
+          <section class="card motor-card" id="turner2Card" aria-labelledby="turner2Title">
+            <div class="control-top">
+              <h2 class="card-title" id="turner2Title">Upper roller · No batch</h2>
+              <label class="switch">
+                <input type="checkbox" id="turner2Switch" aria-label="Upper roller timed manual control" disabled />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <p class="subtext" id="turner2Text">15 seconds every 2 hours by default</p>
+            <div class="settings-grid">
+            <div class="field">
+              <label for="turnInterval2">Turning interval</label>
+              <select id="turnInterval2">
+                <option value="30">Every 30 minutes</option>
+                <option value="60">Every 1 hour</option>
+                <option value="120" selected>Every 2 hours</option>
+                <option value="180">Every 3 hours</option>
+                <option value="240">Every 4 hours</option>
+                <option value="360">Every 6 hours</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="turnDuration2">Run duration (seconds)</label>
+              <input id="turnDuration2" type="number" inputmode="numeric" min="1" max="600" step="1" value="15" aria-describedby="turnDuration2Error" disabled />
+              <span id="turnDuration2Error" class="field-error" role="alert"></span>
+            </div>
+            </div>
+            <div class="motor-actions">
+              <button class="btn btn-soft" type="button" id="turnEgg2Btn" disabled>Run upper roller</button>
+              <button class="btn btn-soft" type="button" id="stopEgg2Btn" aria-label="Stop motor 2" disabled>Stop</button>
+            </div>
+          </section>
     </section>
+    <p class="control-note">Choose lower, upper, or both rollers on the Batch page. Calibrate travel before use. Manual runs are timed; batch turning ends at your selected time, by the start of chicken day 18.</p>
+    <footer class="control-savebar">
+      <div><strong>Control settings</strong><p id="settingsStatus" role="status" aria-live="polite">Connecting</p></div>
+      <button class="btn btn-primary" type="button" id="saveControlSettingsBtn" disabled>Save Settings</button>
+    </footer>
   </main>
 
   <div class="toast" id="hatchToast" role="status" aria-live="polite"></div>
 
   <div class="modal-overlay" id="confirmModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalMessage">
       <div class="modal-icon">!</div>
       <h2 id="modalTitle">Are you sure?</h2>
       <p id="modalMessage">This action cannot be undone.</p>
+      <dl id="modalDetails" class="settings-review" hidden></dl>
+      <p id="modalNotice" class="review-notice" hidden></p>
 
       <div class="modal-actions">
         <button class="modal-btn modal-btn-danger" type="button" id="modalConfirmBtn">Confirm</button>
@@ -198,11 +207,12 @@
   </div>
 
   <script src="js/storage.js"></script>
-  <script src="js/authSession.js"></script>
+  <script src="js/authSession.js?v=20261022-sync"></script>
   <script src="js/app.js"></script>
-  <script src="js/espApi.js"></script>
-  <script src="js/modal.js"></script>
+  <script src="js/espApi.js?v=20261022-sync"></script>
+  <script src="js/batchStore.js?v=20261022-sync"></script>
+  <script src="js/modal.js?v=20261021-review"></script>
   <script src="js/toastNotification.js"></script>
-  <script src="js/control.js"></script>
+  <script src="js/control.js?v=20261022-sync"></script>
 </body>
 </html>

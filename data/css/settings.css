@@ -389,3 +389,14 @@
     width: auto;
   }
 }
+
+#componentsDialog { border: 1px solid var(--border); border-radius: 16px; padding: 20px; width: min(620px,calc(100% - 24px)); max-height: 85dvh; overflow-y: auto; margin: auto; color: var(--black); }
+#componentsDialog::backdrop { background: rgb(17 24 39 / 40%); }
+.component-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.component-heading h2 { font-size: 20px; }
+.component-list { margin: 12px 0; }
+.component-list div { padding: 10px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.component-list dt { font-weight: 600; }
+.component-list dd { margin-top: 4px; color: var(--gray); font-size: 14px; }
+.component-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.component-actions:empty { display: none; }

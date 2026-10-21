@@ -1,10 +1,18 @@
 # HatchAI System Details
 
+> See [automatic sync update](AUTOMATIC_SYNC.md) for current SD/clock startup, direct fan/roller controls, Both placement, day-18 cutoff and snapshot/profile migration. Older setup-button instructions below are historical.
+
+> Current manual control, roller selection and LCD behavior: [roller control update](MANUAL_ROLLER_CONTROL.md).
+
+> Control recovery update: see [automatic startup and DHT22 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
+
 This description is based on the firmware, browser code, and configuration in this project. It describes software behavior; the connected hardware, live ESP32, and model accuracy were not tested for this report.
+
+Current safety/setup details: [Integrated Control](INTEGRATED_CONTROL.md).
 
 ## 1. Purpose and Scope
 
-HatchAI is an ESP32-based chicken egg incubator controller with a local browser dashboard. It measures temperature and relative humidity, switches two heating bulbs and a fan, operates an egg-turning motor through a relay, records measurements on an SD card, shows status on a character LCD, and calculates a predicted hatch date.
+HatchAI is an ESP32-based chicken egg incubator controller with a local browser dashboard. It measures temperature and relative humidity, switches a heating bulb and a fan, operates separate Batch 1 and Batch 2 egg turners, records measurements on an SD card, shows status on a character LCD, and calculates a predicted hatch date.
 
 The ESP32 runs the control logic and serves the web interface itself. A separate cloud server is not required by the implementation. Users reach it through its Wi-Fi access point or through a Wi-Fi network to which it has connected.
 
@@ -42,10 +50,10 @@ All values below come from `include/Config.h`; they are configured assignments, 
 | 20-column, 4-row LCD | I2C address `0x27` |
 | Shared I2C SDA | GPIO 21 |
 | Shared I2C SCL | GPIO 22 |
-| Heating bulb 1 relay | GPIO 26 |
-| Heating bulb 2 relay | GPIO 25 |
-| Fan relay | GPIO 14 |
-| Egg-turning relay | GPIO 27 |
+| Heating bulb relay (IN2) | GPIO 27 |
+| Fan relay (IN1) | GPIO 14 |
+| Batch 1 egg-turning relay (IN3) | GPIO 26 |
+| Batch 2 egg-turning relay (IN4) | GPIO 25 |
 | Relay polarity | Active-low: LOW means ON, HIGH means OFF |
 | SD card chip select | GPIO 5 |
 | SD card SCK | GPIO 18 |
@@ -58,87 +66,85 @@ The code controls relay signals. Relay contact ratings, bulb wattage, motor spec
 
 | Setting | Default |
 | --- | --- |
-| Control mode | Automatic |
-| Temperature target | 37.8 C |
-| Humidity target | 58% relative humidity |
-| Egg-turn interval | 120 minutes |
-| Timed egg-turn pulse | 8 seconds |
-| Sensor sampling interval | 5 seconds |
-| Maximum retained reading age after failed samples | 20 seconds |
-| LCD refresh interval | 2 seconds |
-| Dashboard polling interval | 5 seconds |
-| Control-page polling interval | 5 seconds |
-| Session timeout | 90 seconds |
-| Browser session heartbeat | 30 seconds |
-| Main loop delay | 2 milliseconds |
+| Mode / targets | Automatic / 37.5°C / 55% RH |
+| Sampling / stale timeout / recovery | 2 seconds / 6.5 seconds / three stable valid samples |
+| Heater control / minimum OFF | Target +/-0.3 C hysteresis / 5 seconds |
+| Fan | Continuously ON, including faults |
+| Turner duration / interval | 15 seconds / 120 minutes, independently configurable |
+| Motor gap / lockdown | 1 second / selected cutoff, at most 17 complete days after each assigned start |
+| LCD / browser polling | 2 seconds / at least 5 seconds |
+| Task watchdog | 8 seconds, full-loop servicing |
+| Session timeout / heartbeat | 90 seconds / 30 seconds |
 
-These are project defaults, not experimentally verified incubation recommendations.
+Defaults are commissioning settings, not physically validated performance.
 
 ## 5. Startup and Runtime
 
-`src/main.cpp` constructs the sensor, four relay objects, clock, logger, LCD, controller, network manager, and HTTP server.
+Main setup initializes active-low relays OFF and circulation fan ON through
+the controller, then mounts SPIFFS without auto-format and starts networking/HTTP.
+I2C transactions have a 25 ms timeout. The controller loads its checked NVS
+profile and existing metrics, starts RTC/logger/LCD/DHT22 and the task watchdog.
 
-Startup proceeds as follows:
-
-1. Start the serial console and shared I2C bus.
-2. Mount SPIFFS using `SPIFFS.begin(true)`, which enables formatting on a mount failure.
-3. Initialize the clock, load turning counters, initialize SD logging and LCD, initialize the DHT22 data pin, and initialize the relay outputs to OFF. Sensor presence is checked during sampling.
-4. Start the setup access point and queue a saved/configured station connection.
-5. Register API routes and start the HTTP server.
-
-Each main-loop iteration updates the controller's network status, checks the sensor schedule, updates outputs and turn timing, refreshes the LCD when due, handles HTTP requests, and delays briefly.
-
-Most recurring work uses elapsed `millis()` checks. Short DHT22 transactions, SD access, and SDK calls can still take time. Wi-Fi association no longer has a polling wait loop in startup or the HTTP handler: requests queue work, and `network.update()` checks progress on subsequent main-loop iterations up to a 20-second deadline. Compilation does not establish physical runtime timing guarantees.
+Each loop advances deferred Wi-Fi, control, timers and HTTP, then feeds the
+watchdog and yields briefly. SD/SPI is owned by a separate worker task; DHT,
+LCD, NVS and HTTP operations still have latency. Physical timing tests remain
+required. See [SD Recovery](SD_RECOVERY.md) for the current recovery state machine.
 
 ## 6. Environmental Measurement
 
-`src/Dht22Sensor.cpp` uses the Adafruit DHT library with DATA on GPIO 4, configured in `include/Config.h`. VCC connects to 3.3 V and GND to common ground; use a 10 kOhm pull-up from DATA to 3.3 V if the module does not have one. The DHT22 does not share the RTC/LCD I2C bus.
+The DHT22 remains on GPIO4 with the existing Adafruit checksum validation.
+One frame is sampled every five seconds after a two-second startup allowance.
+Non-finite values, temperature outside -40..80°C or RH outside 0..100% are invalid.
+A brief failed frame retains the previous valid measurement until its 20-second expiry.
+Recovery requires three stable valid measurements. Invalid samples are not logged.
 
-The driver permits two seconds of startup time without blocking the loop. At each five-second sample, temperature and humidity come from one checksum-validated DHT22 frame. Non-finite results, temperatures outside -40 to 80 C, and humidity outside 0-100% are invalid. Prediction uses the same environmental ranges.
-
-Each scheduled sample attempts one measurement, with retries deferred to the next sample to respect the DHT22 minimum two-second interval. A valid sample updates the current reading, RAM history, and SD log. A failed sample sets `lastAnomaly`; the controller retains the previous valid sample while its age is at most 20 seconds. Once it is too old, the reading becomes invalid at a subsequent failed sampling attempt.
-
-Errors distinguish uninitialized/warming-up state, a read failure (timeout or checksum error), and an out-of-range reading. Invalid measurements are not added to history or the CSV.
+The persisted ±2°C temperature offset is applied before safety/history/logging
+and prediction input. Thermostat control and protection use unfiltered
+calibrated temperature. Humidity offset/notes remain browser-only.
 
 ## 7. Automatic and Manual Control
 
-### Automatic temperature control
+Both modes enforce sensor, storage, watchdog, reset and temperature safety.
+The fan runs in automatic mode and during heating/sensor/thermal faults; safe manual OFF is supported. A relay thermostat maintains the user target (30–37.8°C):
+ON below target minus 0.3°C, OFF above target plus 0.3°C, hold state in between.
+Manual heating requests still obey protected relay timing.
+Above 38.0°C heating holds until at/below 37.5°C. High warning starts at 38.5°C
+and a critical 39.0°C latch stops heating/turning and persists through restart.
+Acknowledgment requires stable valid cool readings. A valid ordinary brownout
+recovery may resume heating after RTC/snapshot/sensor validation. Watchdog/panic,
+recreated flash journal and persistent critical holds still need acknowledgment.
+Uncertain motor positions require separate verification. Low warnings allow boot warm-up.
 
-Both bulbs switch together using hysteresis:
+There are no scheduled heat windows or PID duty pulses. The minimum OFF time
+is five seconds; thermostat OFF and safety OFF are immediate. Startup, changed
+targets/modes and recovery start from OFF. See [thermostat control](THERMOSTAT_CONTROL.md).
 
-| Condition | Action |
-| --- | --- |
-| Temperature below target minus 0.3 C | Both bulbs ON |
-| Temperature above target plus 0.3 C | Both bulbs OFF |
-| Temperature inside that band, including its boundaries | Keep the previous bulb states |
-
-With the default target, the thresholds are below 37.5 C and above 38.1 C. This is threshold control, not PID control and not AI-controlled heating.
-
-The fan is ON when temperature is above target plus 0.5 C OR humidity is above target plus 5 percentage points. At the defaults, these thresholds are above 38.3 C or above 63% humidity. Otherwise the fan is OFF; it is not continuously enabled for circulation by this logic.
-
-The humidity target is used for fan decisions and displayed status. There is no actuator that actively raises humidity.
-
-If the current environmental reading is invalid in automatic mode, both bulbs and the fan turn OFF. Scheduled egg turning is evaluated separately and can continue without a valid environmental reading.
-
-### Manual control
-
-The browser can switch to manual mode and request bulb, fan, and turner states. The Control page presents one shared bulb switch; the firmware API also supports a separate second-bulb argument.
-
-Manual mode skips the automatic temperature/humidity output rules. Its relay states do not automatically turn off because a sensor reading becomes invalid. Switching the turner ON manually is a sustained relay command; it is different from requesting a timed turn pulse.
-
-Control targets and mode are held in ESP32 RAM. Applying settings does not save them to Preferences, so a restart restores the firmware defaults.
+Targets, calibration and motor timing persist. Mode restores from the verified
+checkpoint; manual heater ON is never replayed after restart.
 
 ## 8. Egg Turning
 
-Automatic mode starts a turn when the configured interval has elapsed since boot or the last turn during the current boot. A new timed cycle is ignored while a timed cycle is already active.
+Each physical roller is explicitly assigned a browser batch record in Control.
+The device stores its ID, start date, active state and last reservation.
+Schedules default to 15 seconds every two hours; durations 1–600 seconds and
+independent interval choices remain configurable after calibration. There is
+one active motor at a time with a one-second gap. Legacy continuous switches
+become bounded timed requests. Manual starts obey the same safety/RTC/age checks.
 
-Starting a cycle records the event, increments total turns and turns today, records a timestamp, calculates the actual interval when there was a previous cycle during this boot, turns the relay ON, and schedules the pulse to finish after eight seconds.
+NVS intents and verified SD PENDING/IN_PROGRESS checkpoints precede relay ON.
+An interrupted transaction holds all automatic motion until the affected position
+is checked. Timed completion is recorded after OFF and checkpointed before the
+intent clears. Overdue history is not replayed.
+Each batch stops turning at its chosen cutoff, no later than the start of day 18 (17 complete days after its stored start).
+The form now stores start time and duration; legacy date-only starts mean local midnight. Changed bindings/dates require
+re-enabling; paused/completed/deleted bound records disable their turning.
+Failed synchronization is shown as unconfirmed. Assigned records persist on SD;
+missing active records can import into free browser slots after verified recovery.
+Browser-only history and conflicting owned records are retained.
 
-When the pulse finishes, automatic mode turns the relay OFF. Manual mode restores the configured manual turner state, which can leave it ON.
-
-Turning counters are saved in Preferences namespace `hatchai-turn`, with keys `total`, `today`, `interval`, `last`, and `date`. The daily count resets when the RTC date changes, or according to an uptime-day fallback if the clock is unavailable.
-
-Counters survive a restart, but the scheduling timer and previous-turn uptime do not. Counts record issued commands; there is no feedback confirming physical motor rotation or egg movement. There is no incubation-day cutoff for automatic turning in the controller. The browser disables its manual turn button while automatic mode is active, but the `/api/turn` handler itself does not enforce that restriction.
+Existing `hatchai-turn` and `hatchai-turn2` counters remain. They count commands,
+not measured roller movement. Calibrate travel and add limit protection where
+overtravel is possible. No motion/position feedback has been implemented.
 
 ## 9. AI Prediction: Actual Model Behavior
 
@@ -157,26 +163,34 @@ x[3] = incubation day
 
 For a batch, the browser calculates incubation day from its start date and the current date, then sends `batchId` and `incubationDay` to `/api/predict`. The firmware rejects days below 1 and clamps model input to days 1-21. If the RTC is available, it adds predicted days remaining to the current RTC date. Otherwise the browser can calculate a fallback date.
 
-The general `/api/data` prediction and LCD use an incubation day derived from ESP32 uptime. They do not use the selected browser batch's persisted start date, and uptime resets at reboot. The selected batch's dashboard prediction uses the separate batch prediction request.
+The general `/api/data` prediction and LCD use the restored start timestamp of
+the first active physical batch. Bound `/api/predict` requests use the same RTC
+elapsed-time rule. Invalid RTC/recovery means unknown; unbound browser drafts
+retain their explicitly marked advisory date path. A reboot cannot create Day 1.
 
 The repository provides no training dataset, training script, accuracy report, validation split, or error metrics for assessing this model. Prediction is advisory; no code confirms an actual hatch or changes the relay control policy based on the predicted hatch date.
 
 ## 10. Clock and LCD
 
-The DS3231 module supplies dates and times for CSV timestamps, daily turn counts, and predicted hatch dates. If its lost-power flag is set during initialization, the firmware sets it to the firmware build date/time. No NTP synchronization or clock-setting API is implemented.
-
-The LCD displays temperature, humidity, egg-turner ON/OFF state, and hatch prediction/date text. Each line is padded or truncated to 20 characters. Missing readings use placeholders. Missing LCD hardware does not prevent the controller from running.
+DS3231 reads are validated and cached. Lost-power, malformed, stopped or
+discontinuous time disables turning; no compiler-time or uptime fallback is
+used for scheduling. Control provides explicit clock setting with turning disabled.
+The 20x4 LCD retains temperature, RH and generic hatch information, with its
+turner line replaced by a safety message during alarms/holds.
 
 ## 11. Storage and Logging
 
 | Data | Location and persistence |
 | --- | --- |
-| Current sensor reading and control settings | ESP32 RAM; reset on restart |
+| Current sensor reading and manual ON requests | ESP32 RAM; never blindly replayed |
+| Control targets/calibration, timing, bound batches, reservations and arm/critical state | Preferences `hatchai-ctrl` |
 | Recent chart readings | ESP32 RAM ring buffer; reset on restart |
-| Turning counters | Preferences `hatchai-turn` |
+| Turning counters | Preferences `hatchai-turn` and `hatchai-turn2` |
 | Saved Wi-Fi SSID/password | Preferences `hatchai-wifi` |
 | Device account username/password | Preferences `hatchai` |
 | Measurement CSV | SD card `/hatchai.csv` |
+| Assigned batch dates/times/configuration/phase and transactions | SD `/HATCHAI/batch_state_a.json` and `batch_state_b.json` |
+| Journal serials, uncertainty, phase/duration mirrors and sequence reservation | Preferences `hatchai-rec` |
 | HTML, CSS, JS, images, fonts | ESP32 SPIFFS |
 | Batch records | Browser localStorage `hatchai_batches` |
 | Browser account and password copies | localStorage `hatchaiAccount`, `hatchaiPassword` |
@@ -185,17 +199,25 @@ The LCD displays temperature, humidity, egg-turner ON/OFF state, and hatch predi
 | Tab client identifier | sessionStorage `hatchaiClientId` |
 | Server session token and timeout | ESP32 RAM |
 
-Batch records belong to a browser origin. Clearing browser data, changing browser/device, or accessing the ESP32 through a different hostname/IP can expose a different batch list. There is no batch database or cross-device batch synchronization on the ESP32.
+Browser history belongs to its origin. The two assigned physical batch records
+now persist on SD; missing active records can import into available browser
+slots after verified recovery. Owned/conflicting records and unassigned browser
+history are preserved. This is not an unlimited device-wide batch database.
 
-The logger appends one CSV row for each valid scheduled sample, normally every five seconds:
+The worker logs valid RTC-stamped samples every ten seconds (configurable):
 
 ```text
-timestamp,temperature_c,humidity_percent,mode,bulb1,bulb2,fan,turner,target_temperature_c,target_humidity_percent,turn_interval_minutes,total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes
+timestamp,temperature_c,humidity_percent,mode,bulb1,fan,turner,target_temperature_c,target_humidity_percent,turn_interval_minutes,total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes,turner2,turn_interval2_minutes,total_turns2,turns_today2,last_turn2_timestamp,actual_turn_interval2_minutes
 ```
 
-Without an available RTC, timestamps use uptime. An incompatible existing CSV header causes the file to be renamed with a `.legacy-<millis>` suffix before a new file is created. There is no automatic size-based rotation. Relay states in a row are read before that loop's subsequent automatic output update.
+Measurements with unavailable RTC time are not assigned fabricated timestamps.
+Events may use `0` for unknown time. Incompatible headers are archived before
+starting a new file. CSVs rotate at 256 KiB with three retained archives. New
+temperature, humidity, turn, system and recovery logs live under `/HATCHAI`.
+CSV history is distinct from validated A/B recovery snapshots; relay states in
+a row are diagnostic observations, never commands to replay after restart.
 
-Chart history holds 96 valid samples. At five-second sampling, this represents approximately eight minutes of recent data. The `hour`, `day`, `week`, and `month` JSON groups contain up to 12, 24, 32, and 48 recent points, respectively. These names do not represent actual hour/day/week/month archives; the API does not reconstruct historical charts from the SD CSV.
+Chart history holds 96 valid samples. At two-second sampling, this represents approximately 3.2 minutes of recent data. The `hour`, `day`, `week`, and `month` JSON groups contain up to 12, 24, 32, and 48 recent points, respectively. These names do not represent actual hour/day/week/month archives; the API does not reconstruct historical charts from the SD CSV.
 
 ## 12. Browser Pages and Batch Management
 
@@ -214,11 +236,11 @@ Batch records include ID, unique label, generated name, chicken type, egg count,
 
 Supported statuses are Active, Completed, Paused, and Failed. Only Active records are selectable for dashboard prediction. The Batch page displays two active slot cards and rejects creating or activating a third batch while both slots are in use. Historical/non-active records remain unrestricted; existing records are retained, including older lists with more than two active records. The UI does not provide separate environmental control for each slot.
 
-Batch target values are record metadata. Selecting a batch does not send its targets to `/api/control`. Pausing or completing a browser record does not stop physical outputs. There is one shared environmental control loop for the incubator.
+Batch target values are record metadata. Selecting a batch does not send its targets to `/api/control`. Saving a pause/completion for a bound record requests that its assigned turner stop; device acknowledgment is required. The shared heating/fan loop continues. There is one shared environmental control loop for the incubator.
 
 The store starts empty and does not recreate records after all are deleted. It removes unchanged legacy sample records by comparing their full sample metadata; user-created and edited records remain. Calendar-based 21-day progress and fallback dates are calculated in the browser, separately from model prediction.
 
-Calibration offsets and notes are saved and restored by the Settings page. They are not sent to the controller or applied to measured readings by the current implementation.
+Settings saves temperature offset on the ESP32 and applies it to readings and safety decisions. Humidity offset and notes stay browser-only.
 
 ## 13. Networking
 
@@ -246,6 +268,7 @@ Dashboard polling retains unchanged values, prediction text, selector options, a
 | GET | `/api/data` | Current readings, outputs, predictions, component status, history, and settings |
 | POST | `/api/control` | Apply mode, relay states, temperature/humidity targets, and turn interval |
 | POST | `/api/turn` | Start a timed turning cycle |
+| POST | `/api/safety` | Session-token-protected arming, alarm, clock and batch updates |
 | POST | `/api/predict` | Calculate prediction for a supplied batch ID/incubation day |
 | GET | `/api/account` | Return stored account username |
 | POST | `/api/account` | Save account username and optional password |
@@ -258,17 +281,36 @@ Dashboard polling retains unchanged values, prediction text, selector options, a
 | POST | `/api/wifi/connect` or `/connect-wifi` | Connect and save successful Wi-Fi credentials |
 | POST | `/api/wifi/forget` | Remove saved Wi-Fi credentials and disconnect |
 
-The browser API client uses URL-encoded POST bodies. Control arguments include `autoMode`, `bulbOn`, `bulb2On` (with `auxiliaryOn` as an alias), `fanOn`, `turnerOn`, `targetTemperature`, `targetHumidity`, and `turnIntervalMinutes`. Prediction accepts `batchId` and `incubationDay`, with a simple JSON-body fallback parser in addition to form arguments.
+The browser API client uses URL-encoded POST bodies. Control arguments include `autoMode`, `bulbOn`, `fanOn`, `turnerOn`, `turner2On`, `targetTemperature`, `targetHumidity`, `turnIntervalMinutes`, `turnInterval2Minutes`, `turnDurationSeconds`, `turnDuration2Seconds`, and `temperatureOffset`. Legacy `bulb2On` and `auxiliaryOn` arguments are ignored. Turning accepts `motor=1|2|both`, optional `durationSeconds=1..600`, and `action=start|stop`. Prediction accepts `batchId` and `incubationDay`, with a simple JSON-body fallback parser in addition to form arguments.
 
-The status JSON includes temperature/humidity, heating and motor text, predicted days/date, uptime incubation day, RTC/SD/LCD/sensor/network status, IP address, turn metrics, last anomaly, history groups, and a nested `control` object.
+The status JSON includes temperature/humidity, heating/motor text, RTC-derived
+incubation days/date, component status, turn metrics, history and `control`.
+It adds recovery/commit/error status and per-roller restored batch/transaction
+fields. Existing field names remain; unavailable RTC days are unknown.
+The `control` object reports `heaterControl: "thermostat_hysteresis"`,
+`heaterOnBelow` and `heaterOffAbove`. Legacy `heaterDutyPercent` is null and
+`heaterCycleSeconds` is zero; no duty schedule runs.
+It also reports `relayPins`, per-motor manual requests, pulse state/remaining
+seconds, duration limits, independent intervals, and second-motor metrics.
+The control page requires compatible pin assignments and safety version 2 before
+enabling commands. The model still uses motor 1 as its turner feature, and the
+LCD/dashboard motor indicator reports whether either motor is ON.
 
 Static routes serve files from SPIFFS, with `/` mapped to `/index.html`. Responses include cache-control headers; CORS allows any origin, and OPTIONS handlers exist for supported browser requests.
+
+`/api/safety` requires an active matching session token. Login now rejects blank
+passwords; account writes require the same token. Legacy control/turn/Wi-Fi
+access limitations below remain. Browser API clients share one request queue.
 
 ## 15. Login and Access-Control Limitations
 
 The default account is username `admin`, password `1234`. Device credentials are stored as strings in Preferences. The browser also stores a password copy in localStorage. Server sessions expire after 90 seconds without refresh; the browser attempts a heartbeat every 30 seconds.
 
-The session system provides browser coordination, but the main control, account, and Wi-Fi handlers do not check an authenticated session before acting. The session-start handler only verifies credentials when a nonempty password is supplied. Its conflict rule also permits a different token using the same username to replace the session. Login fallback can synchronize browser credentials to the account endpoint before retrying.
+Login verifies a supplied password. Safety/recovery acknowledgments and account
+changes require an active matching token; unauthenticated browser-credential
+replacement after a 401 is no longer supported. Main control/turn/Wi-Fi handlers
+retain their legacy session limitations. A valid login using the same username
+can replace that account's previous token.
 
 Consequently, the login page is not a complete access-control boundary for the device API. HTTP traffic is unencrypted, and CORS is unrestricted. These are concrete properties of the current implementation, relevant when deciding who can reach the ESP32 network.
 
@@ -297,7 +339,7 @@ Consequently, the login page is not a complete access-control boundary for the d
 | `data/js/settings.js`, `data/js/wifi.js` | Account/settings UI and Wi-Fi management |
 | `data/css/`, `data/a/` | Styles, images, icons, and fonts |
 | `docs/CODE_DOCUMENTATION.md` | Existing module and maintenance documentation |
-| `test/README` | PlatformIO test-folder guidance; no project test suite is present there |
+| `test/README` | PlatformIO test-folder guidance; focused compiler/Node/browser checks are documented there |
 
 ## 17. Build and Upload
 
@@ -317,7 +359,7 @@ Run these commands from the project root. The executable path below is the path 
 & "C:\Users\LENOVO\.platformio\penv\Scripts\platformio.exe" run --target uploadfs
 ```
 
-Firmware changes require a firmware upload. Changes under `data/` require a filesystem upload. Updating both requires both uploads. These commands were not executed for this documentation task, and no board state was changed.
+Firmware changes require a firmware upload. Changes under `data/` require a filesystem upload. Updating both requires both uploads. Local compilation/packaging and focused tests are documented in INTEGRATED_CONTROL.md and test/README. Uploads and physical operations require separate authorization.
 
 ## 18. Implications for Agent Documentation
 

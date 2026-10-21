@@ -1,33 +1,74 @@
+# HatchAI checks
 
-This directory is intended for PlatformIO Test Runner and project tests.
+These are local software checks. They do not upload images, contact an ESP32,
+operate relays, test physical movement or certify electrical/thermal safety.
 
-Unit Testing is a software testing method by which individual units of
-source code, sets of one or more MCU program modules together with associated
-control data, usage procedures, and operating procedures, are tested to
-determine whether they are fit for use. Unit testing finds problems early
-in the development cycle.
+## Firmware and SPIFFS
 
-More information about PlatformIO Unit Testing:
-- https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+    platformio run -e esp32dev
+    platformio run -e esp32dev --target buildfs
 
-Browser regression checks
--------------------------
-`ui-regression.cjs` is a host-only Node.js script, separate from PlatformIO Test
-Runner. It requires an installed Playwright module and Google Chrome. Run:
+The main project uses RelayThermostat. Obsolete PID examples and their tests
+were archived during deployment cleanup; current regression tests remain here.
 
+## Compiler-evaluated control checks
+
+    xtensa-esp32-elf-g++ -std=c++14 -Iinclude -fsyntax-only test/automatic_control_compile_test.cpp test/thermostat_compile_test.cpp test/turn_cycle_compile_test.cpp
+
+These compile the actual production control functions, adding constexpr annotations
+under C++14; normal firmware still builds with C++11. They evaluate sensor recovery
+and staleness, unfiltered alarm thresholds/hysteresis/ACK, low-warning timing,
+calendar validation, RTC reservations/lockdown, motor exclusion/gap/deadlines,
+thermostat threshold equality/hold behavior, minimum OFF time, sensor recovery,
+manual mode, absence of periodic pulses and millis rollover. The tests use the same thermostat implementation as the main firmware. These do not emulate
+GPIO, NVS, DHT22 waveforms, RTC hardware or blocking peripheral timing.
+
+## Node and isolated browser checks
+
+    node test/control_dual_motor_test.cjs
     node test/ui-regression.cjs
 
-If Playwright is installed outside normal module resolution, set
-`HATCH_PLAYWRIGHT_MODULE` to its absolute module directory before running.
-The current workstation's existing module is available at:
+The Node fixture checks calibrated durations, payload validation, independent
+intervals, forced fan/false continuous-motor requests, URL encoding, session-token
+actions, shared API serialization and server-error messages.
 
-    C:/Users/LENOVO/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core
+The browser script serves assets on an ephemeral loopback port, uses isolated
+storage/fake time and mocks every ESP32 API. It checks existing Wi-Fi scan/join/
+forget behavior, duplicate/unsafe SSIDs, two batch slots and legacy record
+preservation, dashboard updates without blinking, independent motor timing,
+queued runs/Stop, calibrated saved intervals/durations, direct sliders in both modes,
+Both-roller conflicts, editable day-18 turning end, rejected actions, firmware compatibility and responsive layouts.
+It also checks applying/resetting temperature calibration and failure feedback.
 
-The script serves assets on a temporary loopback port, uses isolated browser
-storage and a simulated clock, and mocks every device API. It checks Wi-Fi
-scan/connection/forget flows, saved-network one-tap joins, password dialogs,
-two batch slots, removal of unchanged sample records, preservation of owned
-records, dashboard rendering stability, changed-data updates, and offline
-recovery. It also guards against explicit delay/polling
-wait loops in the networking source. It does not contact a board, upload files,
-energize outputs, test NVS persistence, or establish radio timing guarantees.
+Chrome and Playwright are required. On this workstation:
+
+    $env:HATCH_PLAYWRIGHT_MODULE='C:/Users/LENOVO/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core'
+
+Optionally set `HATCH_UI_SCREENSHOT_DIR` for screenshots. The script reports the
+actual check count on completion. JavaScript syntax and asset-size checks must
+also be run when web files change. Physical testing and uploads require separate
+authorization. Follow docs/SD_RECOVERY.md for the current power-loss policy and
+14-case physical test procedure, and docs/INTEGRATED_CONTROL.md for thermostat details.
+
+## SD recovery additions
+
+    python test/recovery_fault_simulation.py
+    node test/recovery-ui.cjs
+
+Include test/recovery_compile_test.cpp and test/session_policy_compile_test.cpp
+in the C++14 compiler-evaluated command.
+It checks the actual CRC vector, RTC day/lockdown boundaries, snapshot candidate
+selection, motor journal/position guards and reconciliation predicates.
+The Python test uses temporary host files and a documented fault model; it does
+not execute the full ESP32 JSON/SD driver. The recovery browser test covers the component modal, automatic clock sync/throttling, SD fault/pending/verified distinctions, Both-batch import and exceptional position confirmation using mocked APIs.
+No physical brownout, card removal, RTC battery or mains-load test is implied.
+
+## Manual roller update
+
+See docs/MANUAL_ROLLER_CONTROL.md. Browser regressions include active-batch
+roller selection, duplicate-roller rejection, actual batch labels, settings
+review and manual controls during mocked SD recovery faults. Thermostat compiler
+checks cover manual ON after the five-second OFF guard and immediate OFF.
+Recovery compiler checks cover legacy/current sensor timing compatibility.
+These do not validate physical relay/SD/LCD behavior or run controller NVS
+transactions on hardware.

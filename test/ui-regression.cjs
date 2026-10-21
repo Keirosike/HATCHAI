@@ -75,6 +75,8 @@ async function wifiChecks(browser, origin) {
         forgetCalls++;
         if (!forgetFails) state = { ...home, connected: false, ssid: '', savedSsid: '', connecting: false, connectionState: 'idle', rssi: null };
         await route.fulfill({ json: { forgotten: !forgetFails, message: forgetFails ? 'Storage unavailable' : 'Forgotten' } });
+      } else if (url.pathname === '/api/data') {
+        await route.fulfill({ json: { control: { temperatureOffset: 0 } } });
       } else throw new Error('Unexpected API: ' + url.pathname);
     } finally { active--; }
   });
@@ -292,10 +294,12 @@ async function dashboardChecks(browser, origin) {
 async function batchChecks(browser, origin) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   const errors = [];
+  const boundUpdates = [];
   page.on('pageerror', error => errors.push(error.message));
   await prepare(page, origin);
   await page.route('**/api/**', route => {
     const endpoint = new URL(route.request().url()).pathname;
+    if (endpoint === '/api/safety') boundUpdates.push(Object.fromEntries(new URLSearchParams(route.request().postData())));
     return route.fulfill({ json: endpoint === '/api/predict' ?
       { success: true, incubationDay: Number(new URLSearchParams(route.request().postData()).get('incubationDay')),
         daysRemaining: 10, predictedHatchDay: 21, predictedHatchDate: '2026-10-30', dateSource: 'rtc' } :
@@ -331,6 +335,17 @@ async function batchChecks(browser, origin) {
   }
   if (process.env.HATCH_UI_SCREENSHOT_DIR) await page.locator('#batchSlots').screenshot({ path: path.join(process.env.HATCH_UI_SCREENSHOT_DIR, 'batch-two-slots.png') });
   await page.locator('#openBatchModal').click();
+  check(await page.locator('#targetTemp').inputValue() === '37.5°C' && await page.locator('#targetHumidity').inputValue() === '55%',
+    'New batch form defaults to 37.5 C and 55 percent humidity');
+  const normalizedDefaults = await page.evaluate(() => {
+    const saved = HatchBatchStore.loadBatches();
+    HatchBatchStore.saveBatches([{ id: 'default-target-fixture', count: 12, status: 'Paused' }]);
+    const normalized = HatchBatchStore.loadBatches()[0];
+    HatchBatchStore.saveBatches(saved);
+    return normalized;
+  });
+  check(normalizedDefaults.targetTemp === '37.5°C' && normalizedDefaults.targetHumidity === '55%',
+    'Missing batch targets receive new defaults without rewriting existing targets');
   await page.locator('#batchLabel').fill('THIRD-BATCH');
   await page.locator('#eggCount').fill('12');
   await page.locator('#laidDate').fill('2026-10-08');
@@ -347,7 +362,202 @@ async function batchChecks(browser, origin) {
   await page.reload();
   await until(async () => await page.locator('#batchSlots .batch-slot.empty').count() === 2);
   check(await page.locator('#batchTableBody tr[data-id]').count() === 0, 'Removing all records does not recreate defaults');
+
+  boundUpdates.length=0;
+  await page.locator('#openBatchModal').click();
+  await page.locator('#batchLabel').fill('LOWER-FLOCK');
+  await page.locator('#eggCount').fill('12');
+  await page.locator('#laidDate').fill('2026-10-08');
+  await page.locator('#startDate').fill('2026-10-10');
+  await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#formStatus').innerText()).includes('Choose lower, upper, or both rollers'),
+    'Active batches require an explicit roller choice');
+  await page.locator('#batchRoller').selectOption('1');
+  await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#modalMessage').innerText()).includes('lower roller'),'Batch confirmation names its selected roller');
+  await page.locator('#modalCancelBtn').click();
+  check(boundUpdates.length===0,'Cancelling batch placement sends no device write');
+  await page.locator('#saveBatchBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(()=>boundUpdates.length===1);
+  check(boundUpdates[0].roller==='1' && boundUpdates[0].batchLabel==='LOWER-FLOCK','Saving the batch sends the lower roller and its real label');
+  await until(async()=>!await page.locator('#batchModal').evaluate(el=>el.classList.contains('active')));
+  await page.locator('#openBatchModal').click();
+  await page.locator('#batchLabel').fill('UPPER-FLOCK');await page.locator('#eggCount').fill('10');
+  await page.locator('#laidDate').fill('2026-10-08');await page.locator('#startDate').fill('2026-10-10');
+  await page.locator('#batchRoller').selectOption('1');await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#formStatus').innerText()).includes('already has an active batch'),'Two active batches cannot choose the same roller');
+  await page.locator('#batchRoller').selectOption('2');await page.locator('#saveBatchBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(()=>boundUpdates.length===2);
+  check(boundUpdates[1].roller==='2','Upper roller selection reaches the device API');
+  await page.evaluate(()=>HatchBatchStore.saveBatches([]));await page.reload();
+  boundUpdates.length=0;
+  await page.locator('#openBatchModal').click();
+  check(await page.locator('#startTime').inputValue()!=='','New batch detects its current start time automatically');
+  await page.locator('#batchLabel').fill('SHARED-FLOCK');await page.locator('#eggCount').fill('24');
+  await page.locator('#laidDate').fill('2026-10-08');await page.locator('#startDate').fill('2026-10-10');
+  await page.locator('#startTime').fill('14:30:00');await page.locator('#startTime').dispatchEvent('change');
+  await page.locator('#batchRoller').selectOption('3');
+  check((await page.locator('#turningEnd').inputValue()).replace(/:00$/,'')==='2026-10-27T14:30',
+    'Chicken turning defaults to the start of day 18 using the exact start time');
+  await page.locator('#turningEnd').fill('2026-10-28T14:30');await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#formStatus').innerText()).includes('start of chicken day 18')&&boundUpdates.length===0,
+    'A turning end beyond day 18 cannot reach the device');
+  await page.locator('#turningEnd').fill('2026-10-26T13:15');await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#modalMessage').innerText()).includes('both rollers'),'Review names Both rollers before saving');
+  await page.locator('#modalConfirmBtn').click();await until(()=>boundUpdates.length===1);
+  check(boundUpdates[0].roller==='3'&&boundUpdates[0].turningEnd==='2026-10-26T13:15:00',
+    'Both placement and an earlier turning end reach the firmware together');
+  await until(async()=>!await page.locator('#batchModal').evaluate(el=>el.classList.contains('active')));
+  check(await page.locator('#batchSlots .batch-slot.empty').count()===0,'Both reserves the two rollers without advertising an empty slot');
+  await page.locator('#openBatchModal').click();await page.locator('#batchLabel').fill('CONFLICT');await page.locator('#eggCount').fill('10');
+  await page.locator('#batchRoller').selectOption('2');await page.locator('#saveBatchBtn').click();
+  check((await page.locator('#formStatus').innerText()).includes('already has an active batch'),'Both placement blocks another batch from taking either roller');
+  await page.evaluate(()=>HatchBatchStore.saveBatches([]));await page.reload();
+  await page.evaluate(record => localStorage.setItem('hatchai_batches', JSON.stringify([record])), own);
+  await page.reload();
+  boundUpdates.length = 0;
+  await page.locator('#batchTableBody button[data-action="edit"]').click();
+  await page.locator('#batchStatus').selectOption('Paused');
+  await page.locator('#saveBatchBtn').click();
+  await page.locator('#modalConfirmBtn').click();
+  await until(() => boundUpdates.length === 1);
+  check(boundUpdates[0].action === 'batchUpdate' && boundUpdates[0].batchId === own.id && boundUpdates[0].active === 'false',
+    'Pausing a batch sends its inactive state to the device binding');
+  check(boundUpdates[0].token === 'isolated-ui-test', 'Batch-device synchronization carries the active session token');
+  await page.locator('#batchTableBody button[data-action="delete"]').click();
+  await page.locator('#modalConfirmBtn').click();
+  await until(async () => await page.locator('#batchTableBody tr[data-id]').count() === 0);
+  check(boundUpdates.length === 2 && boundUpdates[1].active === 'false', 'Deleting a batch confirms its bound turning is disabled');
   check(errors.length === 0, 'Batch page has no JavaScript errors');
+  await page.close();
+}
+async function controlChecks(browser,origin) {
+  const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[],writes=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  const batches=[1,2].map(i=>({id:'physical-'+i,label:'FLOCK-'+i,name:'Chicken Batch '+i,roller:i,count:10,startDate:'2026-10-10',laidDate:'2026-10-09',status:'Active'}));
+  await prepare(page,origin,{hatchai_batches:batches});
+  const state={temperature:37.2,humidity:55,sensorValid:true,sensorAgeSeconds:0,wifiStatus:'Connected',rtcTime:'2026-10-20 12:00:00',clockStatus:'Ready',
+    relayPins:{bulb:27,fan:14,turner:26,turner2:25},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
+    control:{autoMode:true,bulbOn:false,manualBulbOn:false,fanOn:true,manualFanOn:true,turnerOn:false,turner2On:false,
+      turnDurationSeconds:15,turnDuration2Seconds:15,turnIntervalMinutes:120,turnInterval2Minutes:120,targetTemperature:37.5,targetHumidity:55,
+      heaterControl:'thermostat_hysteresis',heaterOnBelow:37.2,heaterOffAbove:37.8},
+    safety:{version:2,sensorReady:true,watchdogReady:true,storageReady:true,rtcTrusted:true,critical:false,message:'Temperature checks passed.',
+      batches:batches.map((b,i)=>({motor:i+1,batchId:b.id,label:b.label,active:true,canRun:true,canManualRun:true,status:'Manual ready'}))}};
+  let active=0,maxActive=0;
+  await page.route('**/api/**',async route=>{
+    const endpoint=new URL(route.request().url()).pathname;
+    if(endpoint.startsWith('/api/session/'))return route.fulfill({json:{ok:true,active:true}});
+    active++;maxActive=Math.max(maxActive,active);
+    try {
+      const body=Object.fromEntries(new URLSearchParams(route.request().postData()||''));
+      if(endpoint==='/api/control') {
+        writes.push({kind:'settings',...body});
+        if(body.autoMode!==undefined)state.control.autoMode=body.autoMode==='true';
+        if(body.bulbOn!==undefined)state.control.manualBulbOn=body.bulbOn==='true';
+        if(body.fanOn!==undefined)state.control.manualFanOn=body.fanOn==='true';
+        for(const key of ['turnDurationSeconds','turnDuration2Seconds','turnIntervalMinutes','turnInterval2Minutes'])if(body[key]!==undefined)state.control[key]=Number(body[key]);
+        state.control.bulbOn=state.control.manualBulbOn&&!state.safety.critical&&state.safety.sensorReady;
+        state.control.fanOn=state.control.autoMode||state.control.manualFanOn||state.control.bulbOn||state.safety.critical||!state.safety.sensorReady;
+      } else if(endpoint==='/api/turn') {
+        writes.push({kind:'turn',...body});
+        if(body.action!=='stop'&&(state.safety.critical||!state.safety.sensorReady))return await route.fulfill({status:409,json:{message:'Motor held OFF: sensor or temperature protection.'}});
+        const second=body.motor==='2',key=second?'turner2On':'turnerOn',pulse=second?'turnPulse2Active':'turnPulseActive',queue=second?'turn2Queued':'turnQueued';
+        if(body.action==='stop')state.control[key]=state.control[pulse]=state.control[queue]=false;
+        else if(state.control[second?'turnerOn':'turner2On'])state.control[queue]=true;
+        else state.control[key]=state.control[pulse]=true;
+      } else if(endpoint!=='/api/data')throw new Error('Unexpected control endpoint '+endpoint);
+      check(!(state.control.turnerOn&&state.control.turner2On),'Mock control never runs motors together');
+      await route.fulfill({json:state});
+    } finally {active--;}
+  });
+  const settled=()=>page.waitForFunction(()=>!HatchControl.isSyncing&&!HatchControl.isLoading);
+  await page.goto(origin+'/control.html');await settled();
+  check(await page.locator('#safetyTitle').count()===0&&await page.locator('#setClockBtn').count()===0,'Control removes setup/scheduled-turning panel and clock button');
+  check(await page.locator('#turnBatch1').count()===0&&(await page.locator('#turnerTitle').innerText()).includes('FLOCK-1'),'Control uses the saved batch label without assignment dropdowns');
+  check(await page.locator('#bulbSwitch').isEnabled()&&await page.locator('#fanSwitch').isEnabled(),'Bulb and fan sliders accept direct requests in automatic mode');
+  check(await page.locator('#bulbSwitch').evaluate(el=>el.getBoundingClientRect().width>=44),'Slider checkbox has a real pointer hit target');
+  await page.locator('#bulbSwitch').check();await settled();
+  check(!state.control.autoMode&&state.control.bulbOn,'A bulb request switches to manual mode and updates the commanded relay');
+  await page.locator('#bulbSwitch').uncheck();await settled();
+  await page.locator('#fanSwitch').uncheck();await settled();
+  check(!state.control.fanOn,'Manual fan OFF is supported while heat is OFF and readings are safe');
+  await page.locator('#bulbSwitch').check();await settled();
+  check(state.control.fanOn&&(await page.locator('#fanText').innerText()).includes('protection'),'Fan override remains visible during heating');
+  await page.locator('#bulbSwitch').uncheck();await settled();
+  state.recovery.ready=false;state.recovery.logging=false;state.recovery.checkpointFault=true;
+  await page.evaluate(()=>HatchControl.loadControllerState());
+  await page.locator('#turnerSwitch').check();await settled();
+  check(state.control.turnerOn&&writes.at(-1).manual==='true','Motor slider sends an explicit timed manual request during an SD fault');
+  check(await page.locator('#turnerSwitch').isEnabled(),'Active motor slider stays usable for OFF');
+  await page.locator('#turnerSwitch').uncheck();await settled();
+  check(writes.at(-1).action==='stop'&&!state.control.turnerOn,'Motor slider OFF sends stop');
+  await page.locator('#turnDuration2').fill('7');await page.locator('#turnEgg2Btn').click();await page.locator('#modalConfirmBtn').click();await settled();
+  check(state.control.turner2On&&writes.at(-1).durationSeconds==='7','Upper roller Run uses its entered timed duration');
+  await page.locator('#stopEgg2Btn').click();await settled();
+  state.safety.critical=true;state.safety.message='Critical temperature: heater and motors held OFF.';
+  await page.evaluate(()=>HatchControl.loadControllerState());
+  await page.locator('#turnEggBtn').click();await page.locator('#modalConfirmBtn').click();await settled();
+  check(!state.control.turnerOn&&(await page.locator('#settingsStatus').innerText()).includes('held OFF'),'Rejected motor request explains protection instead of appearing to run');
+  state.safety.critical=false;state.recovery.ready=true;state.recovery.logging=true;state.recovery.checkpointFault=false;
+  await page.evaluate(()=>HatchControl.loadControllerState());
+  await page.locator('#turnDuration1').fill('9');await page.locator('#turnInterval').selectOption('60');
+  const before=writes.length;await page.locator('#saveControlSettingsBtn').click();
+  check(writes.length===before&&(await page.locator('#modalDetails').innerText()).includes('9 sec every 60 min'),'Save opens a concrete timing review without writing');
+  await page.locator('#modalCancelBtn').click();check(writes.length===before,'Cancel sends no settings write');
+  await page.locator('#saveControlSettingsBtn').click();await page.locator('#turnDuration1').evaluate(el=>el.value='99');await page.locator('#modalConfirmBtn').click();await settled();
+  check(state.control.turnDurationSeconds===9,'Save sends the reviewed snapshot rather than subsequent form edits');
+  await page.locator('#autoModeSwitch').check();await settled();
+  check((await page.locator('#bulbText').innerText()).includes('37.2')&&(await page.locator('#bulbText').innerText()).includes('37.8'),'Thermostat ON/OFF limits remain visible');
+  check(!(await page.locator('main').innerText()).includes('PID'),'Control no longer advertises PID');
+  state.safety.batches[0].label='LONG-FLOCK-LABEL-012345678901234';await page.evaluate(()=>HatchControl.loadControllerState());
+  for(const width of [375,812,1280]) {
+    await page.setViewportSize({width,height:900});
+    check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Control fits at '+width+'px');
+    if(width===375&&process.env.HATCH_UI_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.HATCH_UI_SCREENSHOT_DIR,'control-compact-phone.png'),fullPage:true,animations:'disabled'});
+  }
+  state.relayPins.bulb=26;await page.evaluate(()=>HatchControl.loadControllerState());
+  check(await page.locator('#bulbSwitch').isDisabled(),'Incompatible relay firmware remains blocked');
+  check(maxActive===1,'Control requests stay serialized');check(errors.length===0,'Control has no browser JavaScript errors');await page.close();
+}
+async function calibrationChecks(browser, origin) {
+  const page=await browser.newPage({viewport:{width:812,height:1000}});
+  const errors=[],updates=[];let offset=0.3,reject=false;
+  page.on('pageerror',e=>errors.push(e.message));
+  await prepare(page,origin);
+  await page.route('**/api/**',async route=>{
+    const endpoint=new URL(route.request().url()).pathname;
+    if(endpoint==='/api/control'){
+      const body=Object.fromEntries(new URLSearchParams(route.request().postData()));
+      updates.push(body);
+      if(reject)return route.fulfill({status:409,json:{message:'Storage fault'}});
+      offset=Number(body.temperatureOffset);
+    }
+    return route.fulfill({json:endpoint==='/api/data'||endpoint==='/api/control'?
+      {control:{temperatureOffset:offset}}:endpoint==='/api/wifi/status'?
+      {connected:false,connecting:false,apSsid:'HatchAI-ESP32',apIpAddress:'192.168.4.1'}:{ok:true,active:true}});
+  });
+  await page.route('**/scan-wifi*',route=>route.fulfill({json:[]}));
+  await page.goto(origin+'/settings.html');
+  await until(async()=>await page.locator('#temperatureOffset').inputValue()==='0.3');
+  check(true,'Settings loads the applied temperature offset from ESP32');
+  await page.locator('#temperatureOffset').fill('2.1');
+  await page.locator('#saveSettingsBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(async()=>(await page.locator('#saveStatus').innerText()).includes('between -2'));
+  check(updates.length===0,'Invalid calibration cannot reach the device');
+  await page.locator('#temperatureOffset').fill('-0.2');
+  await page.locator('#saveSettingsBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(async()=>(await page.locator('#saveStatus').innerText()).includes('successfully'));
+  check(updates[0].temperatureOffset==='-0.2','Temperature calibration uses the firmware control endpoint');
+  check(JSON.parse(await page.evaluate(()=>localStorage.getItem('hatchaiSettings'))).temperatureOffset==='-0.2',
+    'Browser calibration is saved after device acknowledgment');
+  await page.locator('#resetSettingsBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(()=>updates.length===2);
+  check(updates[1].temperatureOffset==='0','Reset applies zero temperature offset to the device');
+  reject=true;await page.locator('#temperatureOffset').fill('0.4');
+  await page.locator('#saveSettingsBtn').click();await page.locator('#modalConfirmBtn').click();
+  await until(async()=>(await page.locator('#saveStatus').innerText()).includes('not applied'));
+  check(await page.evaluate(()=>localStorage.getItem('hatchaiSettings'))===null,'Rejected calibration is not represented as saved');
+  check(errors.length===0,'Calibration flow has no browser JavaScript errors');
   await page.close();
 }
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2' };
@@ -369,9 +579,13 @@ const server = http.createServer((request, response) => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const origin = 'http://127.0.0.1:' + server.address().port;
-    await wifiChecks(browser, origin);
-    await dashboardChecks(browser, origin);
-    await batchChecks(browser, origin);
+    if (!process.env.HATCH_CONTROL_ONLY) {
+      await wifiChecks(browser, origin);
+      await dashboardChecks(browser, origin);
+      await batchChecks(browser, origin);
+    }
+    await controlChecks(browser, origin);
+    if (!process.env.HATCH_CONTROL_ONLY) await calibrationChecks(browser, origin);
     console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
   } finally {
     await browser.close();

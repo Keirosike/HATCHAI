@@ -134,7 +134,7 @@ const HatchAuthSession = (() => {
   }
 
   async function saveAccount(username, password = "") {
-    const body = { username };
+    const body = { username, token: getSession()?.token || "" };
 
     if (password) {
       body.password = password;

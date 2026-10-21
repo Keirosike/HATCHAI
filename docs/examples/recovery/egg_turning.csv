@@ -1,0 +1,2 @@
+rtc,motor,cycle_id,transaction,run_seconds,next_scheduled,position_verified,reason
+1792584000,1,7,INTERRUPTED,15,1792591200,false,restart_position_unknown

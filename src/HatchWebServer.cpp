@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <SPIFFS.h>
 #include "JsonBuilder.h"
+#include "SessionPolicy.h"
 
 namespace {
 constexpr unsigned long SessionTimeoutMs = 90000;
@@ -35,6 +36,8 @@ void HatchWebServer::registerRoutes() {
   _server.on("/api/turn", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/predict", HTTP_POST, [this]() { handleApiPredict(); });
   _server.on("/api/predict", HTTP_OPTIONS, [this]() { handleOptions(); });
+  _server.on("/api/safety", HTTP_POST, [this]() { handleApiSafety(); });
+  _server.on("/api/safety", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/api/account", HTTP_GET, [this]() { handleAccountGet(); });
   _server.on("/api/account", HTTP_POST, [this]() { handleAccountSave(); });
   _server.on("/api/account", HTTP_OPTIONS, [this]() { handleOptions(); });
@@ -70,23 +73,67 @@ void HatchWebServer::handleApiControl() {
 
   settings.autoMode = parseBoolArg("autoMode", settings.autoMode);
   settings.heaterOn = parseBoolArg("bulbOn", settings.heaterOn);
-  settings.bulb2On = parseBoolArg("bulb2On", settings.heaterOn);
-  settings.bulb2On = parseBoolArg("auxiliaryOn", settings.bulb2On);
   settings.fanOn = parseBoolArg("fanOn", settings.fanOn);
   settings.turnerOn = parseBoolArg("turnerOn", settings.turnerOn);
+  settings.turner2On = parseBoolArg("turner2On", settings.turner2On);
   settings.targetTemperatureC =
     parseFloatArg("targetTemperature", settings.targetTemperatureC);
   settings.targetHumidityPercent =
     parseFloatArg("targetHumidity", settings.targetHumidityPercent);
   settings.turnIntervalMinutes =
     parseMinutesArg("turnIntervalMinutes", settings.turnIntervalMinutes);
+  settings.turnInterval2Minutes =
+    parseMinutesArg("turnInterval2Minutes", settings.turnInterval2Minutes);
+  settings.turnDurationSeconds = parseMinutesArg("turnDurationSeconds", settings.turnDurationSeconds);
+  settings.turnDuration2Seconds = parseMinutesArg("turnDuration2Seconds", settings.turnDuration2Seconds);
+  settings.temperatureOffsetC = parseFloatArg("temperatureOffset", settings.temperatureOffsetC);
 
-  _controller.applySettings(settings);
+  if (!_controller.applySettings(settings)) {
+    sendJson("{\"ok\":false,\"message\":\"Settings rejected: target 30-37.8 C, humidity 0-100, offset -2 to 2 C, interval 30-360 minutes, duration 1-600 seconds. Check device storage.\"}", 400);
+    return;
+  }
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
 }
 
 void HatchWebServer::handleApiTurn() {
-  _controller.triggerTurnCycle();
+  const String motor = _server.hasArg("motor") ? _server.arg("motor") : "both";
+  if (motor != "both" && motor != "1" && motor != "2") {
+    sendJson("{\"ok\":false,\"message\":\"motor must be 1, 2, or both\"}", 400);
+    return;
+  }
+  const uint8_t selectedMotor = motor == "both" ? 0 : motor.toInt();
+  const String action = _server.hasArg("action") ? _server.arg("action") : "start";
+  if (action == "stop") {
+    _controller.stopTurnCycle(selectedMotor);
+    sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
+    return;
+  }
+  if (action != "start") {
+    sendJson("{\"ok\":false,\"message\":\"action must be start or stop\"}", 400);
+    return;
+  }
+
+  uint32_t pulseMs = HatchConfig::TurnerPulseMs;
+  if (_server.hasArg("durationSeconds")) {
+    const String text = _server.arg("durationSeconds");
+    const long seconds = text.toInt();
+    if (seconds < HatchConfig::MinManualTurnSeconds ||
+        seconds > HatchConfig::MaxManualTurnSeconds || String(seconds) != text) {
+      sendJson("{\"ok\":false,\"message\":\"durationSeconds must be a whole number from 1 to 600\"}", 400);
+      return;
+    }
+    const ControlSettings settings = _controller.settings();
+    if (((selectedMotor == 0 || selectedMotor == 1) && settings.turnerOn) ||
+        ((selectedMotor == 0 || selectedMotor == 2) && settings.turner2On)) {
+      sendJson("{\"ok\":false,\"message\":\"Switch continuous motor control OFF before a timed run\"}", 409);
+      return;
+    }
+    pulseMs = static_cast<uint32_t>(seconds) * 1000UL;
+  }
+  if (!_controller.triggerTurnCycle(selectedMotor, pulseMs,parseBoolArg("manual",false))) {
+    sendJson("{\"ok\":false,\"message\":\"Turner blocked. In manual mode check sensor, temperature and interrupted position; assigned batches must be active before lockdown. Automatic mode also requires enabled turning and verified SD recovery.\"}", 409);
+    return;
+  }
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
 }
 
@@ -98,11 +145,58 @@ void HatchWebServer::handleApiPredict() {
   sendJson(_controller.buildPredictionJson(batchId, incubationDay));
 }
 
+void HatchWebServer::handleApiSafety() {
+  // New safety actions require the existing session; legacy routes keep their contract.
+  if (!HatchAccess::tokenAllowed(hasActiveSession(),_server.arg("token").length(),_server.arg("token")==_sessionToken)) {
+    sendJson("{\"ok\":false,\"message\":\"Log in again to change device safety settings.\"}", 401); return;
+  }
+  const String action = _server.arg("action");
+  bool ok = false;
+  if (action == "ack") ok = _controller.acknowledgeAlarm();
+  else if (action == "arm" || action == "disarm") ok = _controller.setTurningArmed(action == "arm");
+  else if (action == "clockAuto") ok = _controller.autoSyncClock(_server.arg("dateTime"));
+  else if (action == "clock") ok = _controller.setClock(_server.arg("dateTime"));
+  else if (action == "recoveryRetry") ok = _controller.retryRecovery();
+  else if (action == "recoveryInitialize") ok = _controller.initializeRecovery();
+  else if (action == "positionVerified") {
+    const String motor=_server.arg("motor");
+    if(motor=="1" || motor=="2") ok=_controller.acknowledgePosition(motor.toInt());
+  }
+  else if (action == "batch") {
+    const String motor = _server.arg("motor");
+    if (motor == "1" || motor == "2") ok = _controller.bindBatch(motor.toInt(),
+      _server.arg("batchId"), _server.arg("startDate"), parseBoolArg("active", false),
+      _server.hasArg("startTime")?_server.arg("startTime"):String("00:00:00"),
+      parseMinutesArg("durationDays",HatchConfig::DefaultIncubationDays),_server.arg("batchStatus"));
+  } else if (action == "batchUpdate") {
+    const String roller=_server.arg("roller");
+    if (_server.hasArg("roller") && roller!="0" && roller!="1" && roller!="2" && roller!="3") {
+      sendJson("{\"ok\":false,\"message\":\"Choose lower, upper, or both rollers.\"}",400); return;
+    }
+    ok = _controller.updateBoundBatch(_server.arg("batchId"), _server.arg("startDate"),
+      parseBoolArg("active", false),_server.hasArg("startTime")?_server.arg("startTime"):String("00:00:00"),
+      parseMinutesArg("durationDays",HatchConfig::DefaultIncubationDays),_server.arg("batchStatus"),roller.toInt(),_server.arg("turningEnd"));
+  }
+  if(ok && (action=="batch" || action=="batchUpdate") && _server.hasArg("batchLabel")) {
+    ok=_controller.updateBatchMetadata(_server.arg("batchId"),_server.arg("batchLabel"),_server.arg("batchName"),parseMinutesArg("eggCount",0));
+  }
+  if (!ok) {
+    const String message=action=="clockAuto" ? "Automatic clock sync could not be verified. Check RTC connection, browser time and saved recovery dates; wait for a motor run to finish." :
+      action=="batchUpdate" ? "Batch could not be saved. Check roller availability, valid start/turning-end times (by day 18), and verified SD recovery." :
+      "Action blocked. Check sensor recovery, temperature, motor position and storage in Component status.";
+    sendJson("{\"ok\":false,\"message\":"+HatchJson::quote(message)+"}", 409); return;
+  }
+  sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
+}
+
 void HatchWebServer::handleAccountGet() {
   sendJson("{\"username\":" + HatchJson::quote(storedUsername()) + "}");
 }
 
 void HatchWebServer::handleAccountSave() {
+  if(!HatchAccess::tokenAllowed(hasActiveSession(),_server.arg("token").length(),_server.arg("token")==_sessionToken)) {
+    sendJson("{\"ok\":false,\"message\":\"Log in before changing account credentials.\"}",401); return;
+  }
   const String username = _server.hasArg("username") ? _server.arg("username") : "";
   const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
@@ -129,12 +223,12 @@ void HatchWebServer::handleSessionStart() {
   const String username = _server.hasArg("username") ? _server.arg("username") : "user";
   const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
-  if (token.length() < 8) {
+  if (token.length() < 8 || token.length()>96 || username.length()>64 || password.length()>128) {
     sendJson("{\"ok\":false,\"message\":\"Invalid session token\"}", 400);
     return;
   }
 
-  if (password.length() > 0 && !credentialsValid(username, password)) {
+  if (!HatchAccess::loginAllowed(password.length()>0,credentialsValid(username,password))) {
     sendJson("{\"ok\":false,\"message\":\"Invalid username or password\"}", 401);
     return;
   }
@@ -306,7 +400,10 @@ float HatchWebServer::parseFloatArg(const String& name, float fallback) {
     return fallback;
   }
 
-  return _server.arg(name).toFloat();
+  const String text = _server.arg(name);
+  char* end = nullptr;
+  const float value = strtof(text.c_str(), &end);
+  return end != text.c_str() && *end == 0 && isfinite(value) ? value : NAN;
 }
 
 uint16_t HatchWebServer::parseMinutesArg(
@@ -317,12 +414,9 @@ uint16_t HatchWebServer::parseMinutesArg(
     return fallback;
   }
 
-  const int minutes = _server.arg(name).toInt();
-
-  if (minutes <= 0) {
-    return fallback;
-  }
-
+  const String text = _server.arg(name);
+  const long minutes = text.toInt();
+  if (minutes <= 0 || minutes > 65535 || String(minutes) != text) return 0;
   return static_cast<uint16_t>(minutes);
 }
 

@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let batches = BatchStore.loadBatches();
   let batchPredictions = {};
   let predictionRequestId = 0;
+  let latestDeviceTime = null;
 
   const batchModal = document.getElementById("batchModal");
   const openBatchModal = document.getElementById("openBatchModal");
@@ -20,6 +21,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const eggCount = document.getElementById("eggCount");
   const laidDate = document.getElementById("laidDate");
   const startDate = document.getElementById("startDate");
+  const startTime = document.getElementById("startTime");
+  const batchRoller = document.getElementById("batchRoller");
+  const turningEnd=document.getElementById('turningEnd');
+  function updateTurningLimit() {
+    const limit=BatchStore.defaultTurningEnd({startDate:startDate.value,startTime:startTime.value});
+    turningEnd.min=`${startDate.value}T${startTime.value.length===5 ? startTime.value+':00' : startTime.value}`;
+    turningEnd.max=limit;
+    if(!turningEnd.dataset.edited || !turningEnd.value || turningEnd.value>limit || turningEnd.value<turningEnd.min) turningEnd.value=limit;
+  }
+  startDate.addEventListener('change',updateTurningLimit);startTime.addEventListener('change',updateTurningLimit);
+  turningEnd.addEventListener('input',()=>turningEnd.dataset.edited='true');
+  const durationDays = document.getElementById("durationDays");
   const targetTemp = document.getElementById("targetTemp");
   const targetHumidity = document.getElementById("targetHumidity");
   const batchStatus = document.getElementById("batchStatus");
@@ -43,7 +56,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function calculateBatch(batch) {
-    return BatchStore.calculateBatch(batch);
+    const dateContext=BatchStore.getCurrentDateContext(latestDeviceTime || {});
+    const info=BatchStore.calculateBatch(batch,dateContext.dateTime);
+    const day=BatchStore.getDeviceBatchDay(batch,latestDeviceTime || {});
+    return day && !day.valid ? {...info,dayText:"Incubation day unavailable",progress:0,daysRemaining:"Verify RTC and recovery"} : info;
   }
 
   function getStatusClass(status) {
@@ -182,11 +198,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const slotBatches = getSlotBatches();
     const runningCount = getActiveBatches().length;
+    const shared=slotBatches.find(batch=>batch.roller===3);
 
-    slotCountBadge.textContent = Math.min(runningCount, SLOT_COUNT) + " / " + SLOT_COUNT + " Running";
+    slotCountBadge.textContent = shared ? "Both rollers / 1 Running" : Math.min(runningCount, SLOT_COUNT) + " / " + SLOT_COUNT + " Running";
     batchSlots.innerHTML = "";
 
-    for (let index = 0; index < SLOT_COUNT; index++) {
+    for (let index = 0; index < (shared ? slotBatches.length : SLOT_COUNT); index++) {
       const batch = slotBatches[index];
       const slot = document.createElement("div");
 
@@ -210,6 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const prediction = getPrediction(batch);
 
       slot.className = "batch-slot clickable" + (batch.selected ? " selected" : "");
+      if(batch.roller===3) slot.style.gridColumn='1 / -1';
       slot.dataset.id = batch.id;
       slot.tabIndex = 0;
       slot.setAttribute("role", "button");
@@ -217,14 +235,15 @@ document.addEventListener("DOMContentLoaded", () => {
       slot.innerHTML = `
         <div class="slot-top">
           <div>
-            <div class="slot-number">Slot ${index + 1}</div>
-            <div class="slot-name">${escapeHtml(batch.name)}</div>
+            <div class="slot-number">${batch.roller===1 ? "Lower roller" : batch.roller===2 ? "Upper roller" : batch.roller===3 ? "Both rollers" : "Roller not selected"}</div>
+            <div class="slot-name">${escapeHtml(batch.label)}</div>
           </div>
           <span class="status-pill ${getStatusClass(batch.status)}">${escapeHtml(batch.status)}</span>
         </div>
         <div class="slot-meta">
-          <span><strong>${batch.count}</strong> eggs</span>
+          <span><strong>${batch.count || "Unknown"}</strong> eggs</span>
           <span><strong>${escapeHtml(prediction.currentDayText)}</strong></span>
+          <span>Turning ends: <strong>${escapeHtml((batch.turningEnd || BatchStore.defaultTurningEnd(batch)).replace('T',' '))}</strong></span>
           <span>Expected: <strong>${escapeHtml(batchInfo.hatchDate)}</strong></span>
           <span>Predicted: <strong>${escapeHtml(prediction.predictedHatchDateText)}</strong></span>
         </div>
@@ -333,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
     currentBatchLabel.hidden = false;
     currentBatchLabel.textContent = "Batch Label: " + selectedBatch.label;
     document.getElementById("currentBatchMeta").textContent =
-      `${selectedBatch.type} eggs - ${batchInfo.dayText} - Laid ${formatDate(selectedBatch.laidDate)} - Started ${formatDate(selectedBatch.startDate)}`;
+      `${selectedBatch.roller===1 ? "Lower roller" : selectedBatch.roller===2 ? "Upper roller" : selectedBatch.roller===3 ? "Both rollers" : "Roller not selected"} - ${selectedBatch.type} eggs - ${batchInfo.dayText} - Laid ${formatDate(selectedBatch.laidDate)} - Started ${formatDate(selectedBatch.startDate)}`;
     document.getElementById("currentBatchPrediction").textContent =
       `Predicted Hatch Day: ${prediction.predictedHatchDayText} - Predicted Hatch Date: ${prediction.predictedHatchDateText}`;
     document.getElementById("progressBar").style.width = batchInfo.progress + "%";
@@ -343,7 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("summaryLabel").textContent = selectedBatch.label;
     document.getElementById("summaryBatch").textContent = selectedBatch.name;
     document.getElementById("summaryType").textContent = selectedBatch.type;
-    document.getElementById("summaryCount").textContent = selectedBatch.count + " eggs";
+    document.getElementById("summaryCount").textContent = (selectedBatch.count || "Unknown") + " eggs";
     document.getElementById("summaryLaid").textContent = formatDate(selectedBatch.laidDate);
     document.getElementById("summaryStarted").textContent = formatDate(selectedBatch.startDate);
     document.getElementById("summaryCurrentDay").textContent = prediction.currentDayText;
@@ -388,6 +407,10 @@ document.addEventListener("DOMContentLoaded", () => {
       eggCount,
       laidDate,
       startDate,
+      startTime,
+      durationDays,
+      batchRoller,
+      turningEnd,
       targetTemp,
       targetHumidity,
       batchStatus,
@@ -415,6 +438,11 @@ document.addEventListener("DOMContentLoaded", () => {
     eggCount.value = batch.count;
     laidDate.value = batch.laidDate || "";
     startDate.value = batch.startDate;
+    startTime.value = batch.startTime || "00:00:00";
+    durationDays.value = batch.durationDays || 21;
+    batchRoller.value = String(batch.roller || 0);
+    turningEnd.dataset.edited=batch.turningEnd ? 'true' : '';
+    turningEnd.value=batch.turningEnd || BatchStore.defaultTurningEnd(batch);updateTurningLimit();
     targetTemp.value = batch.targetTemp;
     targetHumidity.value = batch.targetHumidity;
     batchStatus.value = batch.status;
@@ -432,10 +460,15 @@ document.addEventListener("DOMContentLoaded", () => {
     batchName.readOnly = true;
     eggType.value = "Chicken";
     eggCount.value = "";
-    laidDate.value = new Date().toISOString().slice(0, 10);
-    startDate.value = new Date().toISOString().slice(0, 10);
-    targetTemp.value = "37.8\u00B0C";
-    targetHumidity.value = "58%";
+    const dateContext=BatchStore.getCurrentDateContext(latestDeviceTime || {});
+    laidDate.value = dateContext.dateIso;
+    startDate.value = dateContext.dateIso;
+    startTime.value = dateContext.dateTime.slice(11,19);
+    durationDays.value = 21;
+    batchRoller.value = "0";
+    turningEnd.dataset.edited='';updateTurningLimit();
+    targetTemp.value = "37.5\u00B0C";
+    targetHumidity.value = "55%";
     batchStatus.value = "Active";
     batchPredictionDay.value = "Save batch to calculate prediction";
     batchPredictionHatchDay.value = "Save batch to calculate prediction";
@@ -459,6 +492,10 @@ document.addEventListener("DOMContentLoaded", () => {
       count: Number(eggCount.value),
       laidDate: laidDate.value,
       startDate: startDate.value,
+      startTime: startTime.value.length === 5 ? startTime.value + ":00" : startTime.value,
+      durationDays: Number(durationDays.value),
+      roller: Number(batchRoller.value),
+      turningEnd: turningEnd.value.length===16 ? turningEnd.value+':00' : turningEnd.value,
       targetTemp: targetTemp.value.trim(),
       targetHumidity: targetHumidity.value.trim(),
       status,
@@ -473,6 +510,12 @@ document.addEventListener("DOMContentLoaded", () => {
         getActiveBatches().length >= SLOT_COUNT) {
       return "Both batch slots are in use. Complete or pause a batch before starting another.";
     }
+    if (batch.status === "Active" && ![1,2,3].includes(batch.roller)) return "Choose lower, upper, or both rollers for this batch.";
+    if (batch.status === "Active" && batches.some(b=>b.id!==batch.id && b.status==="Active" && (b.roller & batch.roller)!==0))
+      return "That roller already has an active batch. Choose the other roller or pause its batch.";
+    const stop=BatchStore.defaultTurningEnd(batch),start=`${batch.startDate}T${batch.startTime}`;
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(batch.turningEnd) || batch.turningEnd<start || batch.turningEnd>stop)
+      return 'Choose a turning end between the batch start and the start of chicken day 18.';
     const labelError = BatchStore.getBatchLabelError(batch.label, batches, batch.id);
 
     if (labelError) {
@@ -490,6 +533,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!batch.startDate) {
       return "Start date is required.";
     }
+    if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(batch.startTime) ||
+        !Number.isInteger(batch.durationDays) || batch.durationDays < 19 || batch.durationDays > 35)
+      return "Enter a valid start time and a whole duration from 19 to 35 days.";
 
     if (batch.laidDate > batch.startDate) {
       return "Egg laid date cannot be after the incubation start date.";
@@ -509,8 +555,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       espData = await window.HatchEspApi.getData();
+      latestDeviceTime = espData;
+      const restored = BatchStore.loadBatches();
+      if (restored.some(record => !batches.some(b => b.id === record.id))) { batches = restored; renderApp(); }
     } catch (error) {
       espData = null;
+      latestDeviceTime = null;
     }
 
     if (requestId !== predictionRequestId) {
@@ -521,7 +571,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const hasSensorData = BatchStore.hasValidSensorData(espData || {});
 
     await Promise.all(batches.map(async batch => {
-      const dayInfo = BatchStore.getBatchIncubationDay(batch, dateContext.dateIso);
+      const dayInfo = BatchStore.getDeviceBatchDay(batch,espData || {}) ||
+        BatchStore.getBatchIncubationDay(batch, dateContext.dateTime || dateContext.dateIso);
 
       if (!dayInfo.valid) {
         nextPredictions[batch.id] = makePredictionUnavailable(
@@ -575,9 +626,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function saveBatch(batch) {
-    const isUpdate = batches.some(item => item.id === batch.id);
+  async function syncDeviceBatch(batch, active = batch.status === "Active") {
+    try {
+      await window.HatchEspApi.syncBatch(batch, active);
+      return true;
+    } catch (error) {
+      window.HatchToast.warning("Browser record saved, but the ESP32 turning update was not confirmed. Retry saving this batch before relying on its roller assignment.");
+      return false;
+    }
+  }
 
+  async function saveBatch(batch) {
     if (batch.selected) {
       batches = batches.map(item => ({ ...item, selected: false }));
     }
@@ -593,8 +652,7 @@ document.addEventListener("DOMContentLoaded", () => {
     saveBatches();
     batches = BatchStore.loadBatches();
     renderApp();
-
-    return isUpdate;
+    return syncDeviceBatch(batch);
   }
 
   function selectBatch(id) {
@@ -664,14 +722,15 @@ document.addEventListener("DOMContentLoaded", () => {
       confirmText: "Delete Batch",
       cancelText: "Cancel",
       confirmClass: "modal-btn-danger",
-      onConfirm: () => {
+      onConfirm: async () => {
+        const deviceUpdated = await syncDeviceBatch(batch, false);
         batches = batches.filter(item => item.id !== id);
 
         saveBatches();
         batches = BatchStore.loadBatches();
         renderApp();
         refreshBatchPredictions();
-        window.HatchToast.success("Batch deleted.");
+        if (deviceUpdated) window.HatchToast.success("Batch deleted; assigned turning disabled.");
       }
     });
   }
@@ -795,18 +854,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.HatchModal.open({
       title: isUpdate ? "Save batch changes?" : "Save new batch?",
-      message: `Save "${batch.name}" to your incubator batch records?`,
+      message: `Save "${batch.label}" to ${batch.roller===1 ? "the lower roller" : batch.roller===2 ? "the upper roller" : batch.roller===3 ? "both rollers" : "batch history"}?`,
+      details: [["Batch", batch.name], ["Status",batch.status], ["Start",`${batch.startDate} ${batch.startTime}`], ["Turning ends",batch.turningEnd.replace('T',' ')]],
       confirmText: "Save Batch",
       cancelText: "Cancel",
       confirmClass: "modal-btn-primary",
-      onConfirm: () => {
-        saveBatch(batch);
-        formStatus.textContent = "Saved";
-        formStatus.className = "status-pill status-ok";
+      onConfirm: async () => {
+        const deviceUpdated = await saveBatch(batch);
+        formStatus.textContent = deviceUpdated ? "Saved" : "Saved locally; device update not confirmed";
+        formStatus.className = deviceUpdated ? "status-pill status-ok" : "status-pill status-warning";
         closeModal();
         clearForm();
         refreshBatchPredictions();
-        window.HatchToast.success(isUpdate ? "Batch changes saved." : "Batch saved.");
+        if (deviceUpdated) window.HatchToast.success(isUpdate ? "Batch changes saved." : "Batch saved.");
       }
     });
   });

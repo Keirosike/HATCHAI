@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "IncubatorTypes.h"
+#include "RecoveryStorage.h"
 
 class DataLogger {
 public:
@@ -10,22 +11,24 @@ public:
   void begin();
   bool isReady() const;
   String statusText() const;
+  RecoveryStorage& storage() { return _storage; }
+  const RecoveryStorage& storage() const { return _storage; }
   void logReading(
     const String& timestamp,
     const SensorReading& reading,
     const ControlSettings& settings,
     const EggTurningMetrics& turningMetrics,
+    const EggTurningMetrics& turningMetrics2,
     bool bulb1On,
-    bool bulb2On,
     bool fanOn,
-    bool turnerOn
+    bool turnerOn,
+    bool turner2On
   );
 
 private:
-  String csvHeader() const;
-  void writeHeaderIfNeeded();
-
   uint8_t _csPin;
   const char* _logPath;
-  bool _ready = false;
+  uint32_t _lastLogMs = 0;
+  bool _logged = false;
+  RecoveryStorage _storage;
 };
