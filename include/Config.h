@@ -18,7 +18,8 @@ constexpr uint8_t I2cSdaPin = 21;
 constexpr uint8_t I2cSclPin = 22;
 constexpr uint8_t Ds3231Address = 0x68;
 constexpr uint8_t LcdI2cAddress = 0x27;
-constexpr uint8_t Dht22Pin = 4;
+constexpr uint8_t Sht40Address = 0x44;
+constexpr uint32_t Sht40ConversionMs = 10;
 constexpr uint8_t LcdColumns = 20;
 constexpr uint8_t LcdRows = 4;
 
@@ -55,7 +56,7 @@ constexpr float FanCutoffAboveTargetC = 0.5f;
 constexpr uint16_t DefaultTurnIntervalMinutes = 120;
 
 constexpr uint32_t SensorReadIntervalMs = 5000;
-constexpr uint32_t SensorRetryIntervalMs = 2100; // fresh DHT22 frame, never a tight retry
+constexpr uint32_t SensorRetryIntervalMs = 2100; // bounded sensor recovery, never a tight retry
 constexpr uint32_t SensorStartupMs = 2000;
 constexpr uint32_t SensorStaleAfterMs = 20000;
 constexpr uint8_t SensorRecoverySamples = 3;

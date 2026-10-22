@@ -1,4 +1,6 @@
-# HatchAI ESP32
+# HatchAI ESP32 — SHT40 version
+
+> Current sensor: [SHT40 conversion and wiring](docs/SHT40_VERSION.md). Older DHT22 wiring instructions in historical notes do not apply to this version.
 
 > Latest: [Automatic/Manual controls and automatic interrupted-turn recovery](docs/AUTO_MANUAL_ROLLER_UPDATE.md).
 
@@ -19,7 +21,7 @@ snapshots are preserved; no new Day 1 batch is invented. See that guide
 for commissioning, the Arduino IDE export and the physical power-loss test matrix.
 
 HatchAI is an ESP32-based smart incubator controller with a local web dashboard.
-It monitors temperature and humidity with a DHT22 sensor on GPIO 4, controls a heating bulb, fan, and two egg
+It monitors temperature and humidity with a SHT40 sensor on I2C (SDA 21 / SCL 22), controls a heating bulb, fan, and two egg
 turning relays, logs valid readings to SD card, shows local status on a 20x4
 LCD, and runs a hatch timing prediction model.
 
@@ -27,19 +29,26 @@ For the full code walkthrough, see:
 
 - [Code Documentation](docs/CODE_DOCUMENTATION.md)
 
-## DHT22 Wiring
+## SHT40 wiring
 
-- VCC to ESP32 3.3 V, GND to GND, and DATA to GPIO 4 (`HatchConfig::Dht22Pin`).
-- Use a 10 kOhm pull-up from DATA to 3.3 V if the sensor module has no pull-up.
-- On a bare four-pin DHT22, pin 3 is unused; follow the module labels for a breakout.
-- The DS3231 and LCD still use I2C on GPIO 21/22. The DHT22 does not use I2C.
+| SHT40 breakout | ESP32 |
+| --- | --- |
+| VCC / VIN | 3.3 V |
+| GND | GND |
+| SDA | GPIO 21 |
+| SCL | GPIO 22 |
 
-See [Adafruit's wiring guide](https://learn.adafruit.com/dht/connecting-to-a-dhtxx-sensor).
-PlatformIO installs the configured Adafruit DHT library during the build. The firmware
-allows two seconds for sensor startup and samples every five seconds. Brief
-read failures retain the last valid measurement for at most 20 seconds without
-refreshing its age. Three stable valid samples restore sensor readiness.
+The SHT40 shares I2C with DS3231 and LCD. Default address is `0x44`, configurable
+as `HatchConfig::Sht40Address` in `include/Config.h`; GPIO 4 is no longer used by
+this sensor. Keep I2C pull-ups at 3.3 V. Use the breakout labels for pin order.
+The native sensor must not receive 5 V. Do not connect SDA/SCL to 5 V pull-ups
+from an LCD/RTC module; use appropriate bus level shifting if required.
 
+The built-in Wire driver sends high-precision measurements with a bounded 10 ms
+conversion wait and validates both CRC bytes. No extra sensor library is needed.
+Samples remain five seconds apart; failed attempts retry after 2.1 seconds.
+Two-second startup allowance, 20-second stale expiry, three stable startup frames
+and all existing heater/roller protections remain. See [SHT40 version](docs/SHT40_VERSION.md).
 
 ## Deployment package
 

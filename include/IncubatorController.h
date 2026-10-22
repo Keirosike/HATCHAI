@@ -9,7 +9,7 @@
 #include "OutputDevice.h"
 #include "ReadingHistory.h"
 #include "RealTimeClock.h"
-#include "Dht22Sensor.h"
+#include "Sht40Sensor.h"
 #include "TurnCycle.h"
 #include "RelayThermostat.h"
 #include "ThermalSafety.h"
@@ -22,7 +22,7 @@
 class IncubatorController {
 public:
   IncubatorController(
-    Dht22Sensor& sensor,
+    Sht40Sensor& sensor,
     OutputDevice& heater,
     OutputDevice& fan,
     OutputDevice& turner,
@@ -121,7 +121,7 @@ private:
   String formatUptime(uint32_t timestampMs) const;
   uint32_t nextTurnInMs(uint32_t nowMs, uint8_t index) const;
 
-  Dht22Sensor& _sensor;
+  Sht40Sensor& _sensor;
   OutputDevice& _heater;
   OutputDevice& _fan;
   OutputDevice& _turner;

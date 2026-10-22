@@ -1,10 +1,12 @@
 # HatchAI System Details
 
+> Current sensor hardware: [SHT40 version](SHT40_VERSION.md). Older sensor-specific wiring instructions are historical.
+
 > See [automatic sync update](AUTOMATIC_SYNC.md) for current SD/clock startup, direct fan/roller controls, Both placement, day-18 cutoff and snapshot/profile migration. Older setup-button instructions below are historical.
 
 > Current manual control, roller selection and LCD behavior: [roller control update](MANUAL_ROLLER_CONTROL.md).
 
-> Control recovery update: see [automatic startup and DHT22 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
+> Control recovery update: see [automatic startup and SHT40 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
 
 This description is based on the firmware, browser code, and configuration in this project. It describes software behavior; the connected hardware, live ESP32, and model accuracy were not tested for this report.
 
@@ -37,7 +39,7 @@ The AI component is an exported Random Forest regressor running locally on the E
 | Trend plotting | JavaScript drawing on an HTML canvas |
 | Prediction | Exported `Eloquent::ML::Port::RandomForestRegressor` |
 
-`platformio.ini` declares Adafruit DHT sensor library 1.4.7, which also depends on Adafruit Unified Sensor. The DHT22 wrapper, DS3231, and LCD communication code is implemented in this repository.
+The SHT40 uses the built-in Wire library, with no Adafruit DHT dependency. SHT40, DS3231 and LCD communication code is implemented in this repository.
 
 ## 3. Hardware Configuration
 
@@ -45,7 +47,7 @@ All values below come from `include/Config.h`; they are configured assignments, 
 
 | Device or signal | Configuration |
 | --- | --- |
-| DHT22 temperature/humidity sensor | DATA on GPIO 4 |
+| SHT40 temperature/humidity sensor | I2C 0x44, SDA GPIO 21 / SCL GPIO 22 |
 | DS3231 real-time clock | I2C address `0x68` |
 | 20-column, 4-row LCD | I2C address `0x27` |
 | Shared I2C SDA | GPIO 21 |
@@ -83,16 +85,16 @@ Defaults are commissioning settings, not physically validated performance.
 Main setup initializes active-low relays OFF and circulation fan ON through
 the controller, then mounts SPIFFS without auto-format and starts networking/HTTP.
 I2C transactions have a 25 ms timeout. The controller loads its checked NVS
-profile and existing metrics, starts RTC/logger/LCD/DHT22 and the task watchdog.
+profile and existing metrics, starts RTC/logger/LCD/SHT40 and the task watchdog.
 
 Each loop advances deferred Wi-Fi, control, timers and HTTP, then feeds the
-watchdog and yields briefly. SD/SPI is owned by a separate worker task; DHT,
+watchdog and yields briefly. SD/SPI is owned by a separate worker task; SHT40,
 LCD, NVS and HTTP operations still have latency. Physical timing tests remain
 required. See [SD Recovery](SD_RECOVERY.md) for the current recovery state machine.
 
 ## 6. Environmental Measurement
 
-The DHT22 remains on GPIO4 with the existing Adafruit checksum validation.
+The SHT40 uses shared I2C SDA21/SCL22 at 0x44. The built-in driver validates both CRC bytes after each high-precision measurement and a required 10 ms conversion wait. RH is clamped to 0..100% per the sensor specification.
 One frame is sampled every five seconds after a two-second startup allowance.
 Non-finite values, temperature outside -40..80°C or RH outside 0..100% are invalid.
 A brief failed frame retains the previous valid measurement until its 20-second expiry.
@@ -323,7 +325,7 @@ Consequently, the login page is not a complete access-control boundary for the d
 | `include/Config.h` | Pins, addresses, defaults, and intervals |
 | `include/IncubatorTypes.h` | Reading, control settings, and turning metric structures |
 | `src/IncubatorController.cpp` | Sensor scheduling, control, turning, predictions, and status JSON |
-| `src/Dht22Sensor.cpp` | Environmental sensor communication and validation |
+| `src/Sht40Sensor.cpp` | Environmental sensor communication and validation |
 | `src/OutputDevice.cpp` | Relay state and GPIO polarity |
 | `src/RealTimeClock.cpp` | DS3231 clock communication |
 | `src/DataLogger.cpp` | SD initialization, CSV header, and rows |

@@ -37,7 +37,7 @@ const HatchComponents = {
       if(r.sdAvailable && !r.logging) sdDetail+='; CSV logging failed; retrying automatically';
       if(s.rtcTrusted===false) sdDetail+='; RTC time is not ready; automatic turning also needs a valid clock';
       const rows=[
-        ['DHT22',data.sensorValid ? 'Detected' : 'Not responding',data.sensorValid ? `${data.sensorRetrying ? `Retrying after ${data.sensorConsecutiveFailures ?? 1} failed read(s); last valid reading:` : 'Valid reading:'} ${data.temperature} C / ${data.humidity}% RH; age ${data.sensorAgeSeconds ?? '?'} s` : data.sensorError || 'No valid measurement'],
+        ['SHT40',data.sensorValid ? 'Detected' : 'Not responding',data.sensorValid ? `${data.sensorRetrying ? `Retrying after ${data.sensorConsecutiveFailures ?? 1} failed read(s); last valid reading:` : 'Valid reading:'} ${data.temperature} C / ${data.humidity}% RH; age ${data.sensorAgeSeconds ?? '?'} s` : data.sensorError || 'No valid measurement'],
         ['SD card',r.sdAvailable===true ? 'Detected' : r.sdAvailable===false ? 'Not detected / unavailable' : 'Unknown',sdDetail],
         ['RTC (DS3231)',rtcDetection,s.rtcTrusted ? data.rtcTime : data.clockSyncError || clockStatus || 'Waiting for clock validation'],
         ['LCD',lcdDetection,`${data.lcdStatus || 'Unknown'} (I2C communication; displayed text cannot be verified)`],

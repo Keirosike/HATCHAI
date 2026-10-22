@@ -21,7 +21,7 @@ and staleness, unfiltered alarm thresholds/hysteresis/ACK, low-warning timing,
 calendar validation, RTC reservations/lockdown, motor exclusion/gap/deadlines,
 thermostat threshold equality/hold behavior, minimum OFF time, sensor recovery,
 manual mode, absence of periodic pulses and millis rollover. The tests use the same thermostat implementation as the main firmware. These do not emulate
-GPIO, NVS, DHT22 waveforms, RTC hardware or blocking peripheral timing.
+GPIO, NVS, SHT40 I2C waveforms, RTC hardware or blocking peripheral timing.
 
 ## Node and isolated browser checks
 
@@ -86,3 +86,5 @@ ON during a mocked SD fault. No physical outputs are exercised.
 Include sensor_sampling_compile_test.cpp with thermostat_compile_test.cpp and automatic_control_compile_test.cpp for failed-read cadence, rollover, cold-dip filtering, startup qualification versus normal valid temperature changes, stale shutdown and raw hot/critical shutdown. Browser checks cover the heater OFF reason and transient read diagnostics with mocked payloads; they do not execute controller SD/NVS recovery transactions. See docs/HEATING_SENSOR_SD_FIX.md.
 
 Concurrent slider update: the production restart-dwell predicate is per motor (canStart), journals allow two live intents with independent ownership, and overlapping timer tests verify that a lower deadline leaves upper remaining time unchanged. Browser checks retain the existing sliders without combined buttons and verify each Stop leaves the peer ON. Earlier one-motor-at-a-time assumptions are superseded. Physical simultaneous motor load and SD/NVS power-cut tests remain unperformed.
+
+SHT40 version: include sht40_protocol_compile_test.cpp in the C++14 compiler checks. This checks the published CRC vector, independent temperature/RH corruption, frame length, conversion endpoints and RH clamping. Driver I2C presence/read-timeout paths require mocked transport or physical testing; compilation alone is not sensor validation.

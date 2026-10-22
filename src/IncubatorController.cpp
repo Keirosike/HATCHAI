@@ -17,7 +17,7 @@ uint32_t localEpoch(const String& iso) {
 }
 
 IncubatorController::IncubatorController(
-  Dht22Sensor& sensor,
+  Sht40Sensor& sensor,
   OutputDevice& heater,
   OutputDevice& fan,
   OutputDevice& turner,
@@ -91,7 +91,7 @@ void IncubatorController::update() {
   _safety.update(millis(), _startedMs);
   if (!_safety.sensorValid && _currentReading.valid) {
     _currentReading.valid = false;
-    _currentReading.error = "DHT22 reading is stale";
+    _currentReading.error = "SHT40 reading is stale";
   }
   refreshTurnMetricsDate(0);
   refreshTurnMetricsDate(1);
@@ -534,7 +534,7 @@ void IncubatorController::readSensorIfDue(uint32_t nowMs) {
   }
   if(wasHigh!=_safety.high) logSystem("HIGH_TEMPERATURE",_safety.high?"alarm":"cleared");
   if(wasValid!=reading.valid || (!reading.valid && reading.error!=_lastAnomaly))
-    logSystem(reading.valid?"SENSOR_RECOVERED":"SENSOR_FAULT",reading.valid?"Valid DHT22 sample":reading.error);
+    logSystem(reading.valid?"SENSOR_RECOVERED":"SENSOR_FAULT",reading.valid?"Valid SHT40 sample":reading.error);
 
   if (reading.valid) {
     _lastReadingTimestamp = _clock.isReady() ? _clock.timestamp() : formatUptime(reading.timestampMs);
@@ -1145,7 +1145,7 @@ const char* IncubatorController::manualMotorHold(uint8_t i, uint32_t nowMs) cons
   if(_watchdog.recoveryRequired) return "Restart recovery is waiting for stable sensor readings.";
   if(!_recoveryGuard.healthy) return "ESP32 motor journal failed; service internal flash storage.";
   if(_safety.critical) return "Critical temperature alarm; inspect and acknowledge after cooling in Settings > Component status.";
-  if(!_safety.ready(nowMs)) return "DHT22 is not ready; wait for three stable valid readings and check its wiring if this continues.";
+  if(!_safety.ready(nowMs)) return "SHT40 is not ready; wait for three stable valid readings and check its wiring if this continues.";
   if(!HatchRecovery::journalAllows(_recoveryGuard.value.uncertainMask,i,false,_manualMotor[i]) || _recoveryState.motors[i].positionHold)
     return _preparingMotor>=0 ? "Another automatic turn is being prepared; wait for it to finish." :
       "Interrupted turn recovery is pending; the unfinished run will be skipped automatically.";
@@ -1217,7 +1217,7 @@ String IncubatorController::heaterStatus() const {
   if (!_profile.healthy) return "Heater OFF: internal settings storage fault";
   if (!_watchdog.healthy) return "Heater OFF: watchdog fault";
   if (_watchdog.recoveryRequired) return "Heater OFF: qualifying sensor after restart";
-  if (!_safety.ready(millis())) return "Heater OFF: waiting for fresh, qualified DHT22 readings";
+  if (!_safety.ready(millis())) return "Heater OFF: waiting for fresh, qualified SHT40 readings";
   if (_safety.inhibited || _safety.high) return "Heater OFF: cooling hold until at most 37.5 C";
   if (_heater.isOn()) return "Heating ON";
   if (!_settings.autoMode && !_settings.heaterOn) return "Manual bulb OFF";

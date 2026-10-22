@@ -19,4 +19,4 @@ private:
   uint32_t lastAttemptMs = 0;
 };
 static_assert(HatchConfig::SensorRetryIntervalMs >= 2000,
-  "DHT22 retries must allow a fresh measurement");
+  "Sensor retries must remain spaced apart");

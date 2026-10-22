@@ -102,3 +102,9 @@ WebServer logged an error before invoking the successful static-file fallback.
 Actual missing paths now print a bounded `[HTTP] 404: /path` diagnostic. These
 changes require firmware upload only; no dashboard layout or asset changes.
 LCD I2C detection failures remain separate hardware/address diagnostics.
+# SHT40 hardware version
+
+This folder now uses SHT40 over shared SDA21/SCL22 at 0x44, powered at 3.3 V.
+Follow [SHT40 wiring and migration](SHT40_VERSION.md); older DHT22 GPIO4 wiring
+does not apply. Build/upload both firmware and SPIFFS for the updated driver and
+component labels. Existing SD/NVS batch state is retained; review calibration.

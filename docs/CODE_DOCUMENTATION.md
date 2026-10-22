@@ -1,10 +1,12 @@
 # HatchAI Code Documentation
 
+> Current sensor hardware: [SHT40 version](SHT40_VERSION.md). Older sensor-specific wiring instructions are historical.
+
 > See [automatic sync update](AUTOMATIC_SYNC.md) for current SD/clock startup, direct fan/roller controls, Both placement, day-18 cutoff and snapshot/profile migration. Older setup-button instructions below are historical.
 
 > Current manual control, roller selection and LCD behavior: [roller control update](MANUAL_ROLLER_CONTROL.md).
 
-> Control recovery update: see [automatic startup and DHT22 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
+> Control recovery update: see [automatic startup and SHT40 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
 
 This document explains the structure and behavior of the HatchAI ESP32 codebase.
 For the current safety profile and commissioning steps, see [Integrated Control](INTEGRATED_CONTROL.md).
@@ -28,7 +30,6 @@ framework = arduino
 monitor_speed = 115200
 board_build.filesystem = spiffs
 lib_deps =
-    adafruit/DHT sensor library@1.4.7
 ```
 
 The source code is split into:
@@ -44,7 +45,7 @@ Hardware pins and default settings are defined in `include/Config.h`.
 
 | Device | Setting |
 | --- | --- |
-| DHT22 temperature/humidity sensor | DATA on GPIO 4 |
+| SHT40 temperature/humidity sensor | I2C 0x44, SDA GPIO 21 / SCL GPIO 22 |
 | Heating bulb relay (IN2) | GPIO 27 |
 | Fan relay (IN1) | GPIO 14 |
 | Upper roller relay (IN3) | GPIO 26 |
@@ -68,7 +69,7 @@ Default incubation settings:
 | Target temperature | 37.5 deg C |
 | Target humidity | 55 percent |
 | Egg turn interval | 120 minutes |
-| DHT22 read interval | 2000 ms |
+| SHT40 read interval | 5000 ms |
 | Sensor stale timeout | 6500 ms |
 | Automatic turner run, each motor | 15000 ms initially; calibrated 1–600 seconds |
 | Manual timed run, each motor | 1–600 seconds, initially 15 |
@@ -76,7 +77,7 @@ Default incubation settings:
 
 ## 3. Firmware Startup Flow
 
-The objects in `src/main.cpp` are retained: DHT22, four OutputDevices, DS3231,
+The objects in `src/main.cpp` are retained: SHT40, four OutputDevices, DS3231,
 logger, LCD, controller, network manager and web server. Setup configures I2C
 with a 25 ms transaction timeout, then initializes the controller's relays OFF
 and fan ON before peripheral/file-system/network startup. SPIFFS mounts with
@@ -121,16 +122,17 @@ Targets, calibration, intervals and durations persist. Mode defaults to auto
 on reboot; manual ON requests do not persist. Legacy manual motor switches
 request bounded runs. Stop cancels a selected active/queued run in either mode.
 
-## 5. DHT22 Sensor Driver
+## 5. SHT40 Sensor Driver
 
-`src/Dht22Sensor.cpp` retains the Adafruit checksum-validated driver on GPIO4.
-Supply is 3.3 V; add a 4.7–10 kOhm DATA pull-up to 3.3 V if none is fitted.
-The wrapper permits two-second startup and the controller samples every two
-seconds. Temperature and humidity use the same cached frame. Failed reads,
-non-finite values, temperatures outside -40..80°C and humidity outside 0..100%
-are invalid. Protocol reads take bounded time; scheduling does not wait two
-seconds in a delay loop. Invalid samples are excluded from history and CSV.
-The controller applies the persisted temperature offset and validates recovery.
+`src/Sht40Sensor.cpp` uses the shared Wire bus at address 0x44. High-precision
+command 0xFD is followed by a bounded 10 ms conversion wait and six-byte read.
+Both two-byte data words must pass CRC-8 (polynomial 0x31, initial 0xFF).
+The protocol helpers convert temperature and clamp RH to 0..100% as specified by
+Sensirion. Temperatures outside the application's -40..80 C range are rejected.
+A two-second startup allowance, five-second sample interval, 2.1-second failed-read
+retry, 20-second stale expiry and three stable startup/recovery frames are retained.
+Invalid samples do not enter history or CSV. The persisted temperature offset is
+still applied by the controller; review it when replacing the sensor.
 
 ## 6. Output Devices
 
@@ -185,7 +187,7 @@ actual_turn_interval2_minutes
 ```
 
 Invalid sensor readings are not logged. This avoids recording fake or misleading
-data when the DHT22 fails a read.
+data when the SHT40 fails a read.
 
 If an existing log file has an incompatible header, the code renames it to a
 `.legacy-<millis>` backup and starts a new CSV with the current header.
@@ -690,16 +692,16 @@ If firmware behavior did not change:
 - Confirm you uploaded firmware with `platformio run --target upload`.
 - Confirm the correct project folder was used.
 
-If DHT22 readings show intermittent failures:
+If SHT40 readings show intermittent failures:
 
 - The firmware retries at the next five-second sample, without rapid retries.
 - Heating stops on a detected invalid sample; recovery requires three stable valid readings.
-- Check DATA wiring to GPIO 4, sensor power, common ground, and the DATA pull-up.
-- Check `lastAnomaly` in the dashboard for the most recent DHT22 error string.
+- Check SDA21/SCL22, 3.3 V sensor power, common ground, I2C address and 3.3 V bus pull-ups.
+- Check `lastAnomaly` in the dashboard for the most recent SHT40 error string.
 
 If predictions are unavailable:
 
-- Confirm there is a valid DHT22 reading.
+- Confirm there is a valid SHT40 reading.
 - Confirm the selected batch has a valid start date.
 - Confirm the selected batch is Active.
 - Confirm `/api/predict` is available from the ESP32.
@@ -713,7 +715,7 @@ If SD logging is not working:
 ## 24. High-Level Flow
 
 ```text
-DHT22 sensor (GPIO 4)
+SHT40 sensor (I2C 0x44, GPIO 21/22)
   -> IncubatorController
   -> ReadingHistory
   -> SD logger
@@ -741,7 +743,7 @@ Browser batch record
 - Keep hardware pin changes centralized in `include/Config.h`.
 - If the model is replaced, keep the feature order aligned with
   `predictedDaysRemainingForDay()`.
-- Do not log invalid DHT22 readings as real sensor history.
+- Do not log invalid SHT40 readings as real sensor history.
 - Run `uploadfs` for every `data/` UI change.
 - Remember that batch records are browser-local unless a future feature moves
   them into ESP32 storage.
