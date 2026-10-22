@@ -52,8 +52,8 @@ All values below come from `include/Config.h`; they are configured assignments, 
 | Shared I2C SCL | GPIO 22 |
 | Heating bulb relay (IN2) | GPIO 27 |
 | Fan relay (IN1) | GPIO 14 |
-| Batch 1 egg-turning relay (IN3) | GPIO 26 |
-| Batch 2 egg-turning relay (IN4) | GPIO 25 |
+| Upper egg-turning relay (IN3) | GPIO 26 |
+| Lower egg-turning relay (IN4) | GPIO 25 |
 | Relay polarity | Active-low: LOW means ON, HIGH means OFF |
 | SD card chip select | GPIO 5 |
 | SD card SCK | GPIO 18 |
@@ -70,7 +70,7 @@ The code controls relay signals. Relay contact ratings, bulb wattage, motor spec
 | Sampling / stale timeout / recovery | 2 seconds / 6.5 seconds / three stable valid samples |
 | Heater control / minimum OFF | Target +/-0.3 C hysteresis / 5 seconds |
 | Fan | Continuously ON, including faults |
-| Turner duration / interval | 15 seconds / 120 minutes, independently configurable |
+| Turner duration / interval | 120 seconds / 120 minutes, independently configurable |
 | Motor gap / lockdown | 1 second / selected cutoff, at most 17 complete days after each assigned start |
 | LCD / browser polling | 2 seconds / at least 5 seconds |
 | Task watchdog | 8 seconds, full-loop servicing |
@@ -126,7 +126,7 @@ checkpoint; manual heater ON is never replayed after restart.
 
 Each physical roller is explicitly assigned a browser batch record in Control.
 The device stores its ID, start date, active state and last reservation.
-Schedules default to 15 seconds every two hours; durations 1–600 seconds and
+Schedules default to 120 seconds every two hours; durations 1–600 seconds and
 independent interval choices remain configurable after calibration. There is
 one active motor at a time with a one-second gap. Legacy continuous switches
 become bounded timed requests. Manual starts obey the same safety/RTC/age checks.
@@ -174,9 +174,10 @@ The repository provides no training dataset, training script, accuracy report, v
 
 DS3231 reads are validated and cached. Lost-power, malformed, stopped or
 discontinuous time disables turning; no compiler-time or uptime fallback is
-used for scheduling. Control provides explicit clock setting with turning disabled.
-The 20x4 LCD retains temperature, RH and generic hatch information, with its
-turner line replaced by a safety message during alarms/holds.
+used for scheduling. Lost/invalid RTC time repairs automatically from a logged-in browser.
+The LCD shows temperature/RH on line 1, Upper batch on line 2, Lower batch on
+line 3 and an estimate on line 4. Two distinct batches alternate estimates every
+six seconds; one batch has one estimate. Alarms/holds take priority on line 4.
 
 ## 11. Storage and Logging
 

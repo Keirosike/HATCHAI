@@ -72,3 +72,17 @@ checks cover manual ON after the five-second OFF guard and immediate OFF.
 Recovery compiler checks cover legacy/current sensor timing compatibility.
 These do not validate physical relay/SD/LCD behavior or run controller NVS
 transactions on hardware.
+
+## Roller requests, cards and LCD update
+
+Include test/batch_display_compile_test.cpp in the compiler-evaluated command.
+It checks no/single/two/shared batch selection for the physical estimate row.
+Browser tests cover card-click details, in-modal Edit/Delete, Done confirmation,
+cancel/rejection/history retention and direct timed runs with automatic climate
+ON during a mocked SD fault. No physical outputs are exercised.
+
+## Heating and sensor/SD recovery
+
+Include sensor_sampling_compile_test.cpp with thermostat_compile_test.cpp and automatic_control_compile_test.cpp for failed-read cadence, rollover, cold-dip filtering, startup qualification versus normal valid temperature changes, stale shutdown and raw hot/critical shutdown. Browser checks cover the heater OFF reason and transient read diagnostics with mocked payloads; they do not execute controller SD/NVS recovery transactions. See docs/HEATING_SENSOR_SD_FIX.md.
+
+Concurrent slider update: the production restart-dwell predicate is per motor (canStart), journals allow two live intents with independent ownership, and overlapping timer tests verify that a lower deadline leaves upper remaining time unchanged. Browser checks retain the existing sliders without combined buttons and verify each Stop leaves the peer ON. Earlier one-motor-at-a-time assumptions are superseded. Physical simultaneous motor load and SD/NVS power-cut tests remain unperformed.

@@ -66,10 +66,10 @@ void LcdStatusDisplay::showBoot(const String& message) {
 
 void LcdStatusDisplay::showStatus(
   const SensorReading& reading,
-  bool turnerOn,
+  const String& upperBatch,
+  const String& lowerBatch,
   const String& hatchDateText,
-  const String& alarmText,
-  const String& batchDays
+  const String& alarmText
 ) {
   if (!_ready) {
     return;
@@ -78,9 +78,9 @@ void LcdStatusDisplay::showStatus(
   String readings="T:--.-C RH:--%";
   if (reading.valid) readings="T:"+String(reading.temperatureC,1)+"C RH:"+String(reading.humidityPercent,0)+"%";
   printLine(0,readings);
-  printLine(1,batchDays.length() ? batchDays : "No batch on rollers");
-  printLine(2,hatchDateText.length() ? hatchDateText : "Est: unavailable");
-  printLine(3,alarmText.length() ? alarmText : turnerOn ? "Egg turn: ON" : "Egg turn: OFF");
+  printLine(1,upperBatch);
+  printLine(2,lowerBatch);
+  printLine(3,alarmText.length() ? alarmText : hatchDateText);
 }
 
 void LcdStatusDisplay::send(uint8_t value, uint8_t mode) {

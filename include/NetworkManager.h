@@ -37,6 +37,7 @@ private:
   uint32_t _connectionStartedMs = 0;
   uint32_t _lastReconnectAttemptMs = 0;
   bool _accessPointStarted = false;
+  bool _mdnsStarted = false;
   bool _forgetPending = false;
   uint32_t _forgetRequestedMs = 0;
   uint32_t _scanStartedMs = 0;

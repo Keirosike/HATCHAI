@@ -1,5 +1,7 @@
 # Automatic recovery and direct control
 
+> See [roller, batch-card and LCD update](ROLLER_BATCH_LCD_UPDATE.md) for the newer direct-run routing, card actions and fixed LCD layout.
+
 This is the current behavior for the October 22, 2026 update. It supersedes older setup-button, always-on fan, and 432-hour turning instructions in earlier change notes.
 
 ## Power and SD recovery

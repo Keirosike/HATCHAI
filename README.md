@@ -1,5 +1,11 @@
 # HatchAI ESP32
 
+> Latest: [Automatic/Manual controls and automatic interrupted-turn recovery](docs/AUTO_MANUAL_ROLLER_UPDATE.md).
+
+> Latest: [heating, sensor qualification and guarded SD recovery fix](docs/HEATING_SENSOR_SD_FIX.md).
+
+> Latest: [direct roller requests, batch-card Done/details, and the four-line LCD](docs/ROLLER_BATCH_LCD_UPDATE.md).
+
 > Latest behavior and verification: [automatic sync, component status and direct controls](docs/AUTOMATIC_SYNC.md).
 
 > Current manual control, roller selection and LCD behavior: [roller control update](docs/MANUAL_ROLLER_CONTROL.md).
@@ -56,8 +62,8 @@ OFF time prevents rapid re-energizing. See [thermostat control](docs/THERMOSTAT_
 The circulation fan runs in automatic mode, during heating and during faults; safe manual OFF is supported.
 Heating holds above 38.0°C; 39.0°C causes a persistent critical latch.
 
-Both turners default to 15 seconds every two hours. Each has a user-calibrated
-duration (1–600 seconds) and an independent interval. Motors run sequentially,
+Both turners default to 120 seconds every two hours. Each has a user-calibrated
+duration (1–600 seconds) and an independent interval. Motors have independent timers and may run together,
 and RTC/NVS reservations prevent repeated turns after restart. Assigned batch
 dates enforce the selected turning end, no later than the start of day 18 (start + 17 days). Manual runs retain the safety
 checks; continuous motor ON commands are replaced by bounded timed runs.
@@ -69,9 +75,9 @@ an active batch enables its schedule; verify motor travel before commissioning.
 The dashboard, Wi-Fi, SD logging, LCD and existing prediction routes remain.
 No upload or physical validation has been performed. Temperature stability,
 power savings and hatch rate remain unmeasured.
-The restored relay layout is IN1 fan GPIO14, IN2 bulb GPIO27, IN3 Batch 1 turner
-GPIO26, and IN4 Batch 2 turner GPIO25, all active-low. These are the assignments
-recovered from `origin/master`'s `main-esp32` project, not a new wiring measurement.
+The corrected relay layout is IN1 fan GPIO14, IN2 bulb GPIO27, IN3 Upper roller
+GPIO26, and IN4 Lower roller GPIO25, all active-low. Upper/Lower were swapped
+after the reported physical mismatch; wiring has not been physically tested.
 Both batches share temperature and humidity control. See
 [turner restoration verification](docs/TURNER_RESTORATION.md) for details.
 

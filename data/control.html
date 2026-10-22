@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="css/components.css" />
   <link rel="stylesheet" href="css/modal.css" />
   <link rel="stylesheet" href="css/toastNotification.css" />
-  <link rel="stylesheet" href="css/control.css?v=20261022-sync" />
+  <link rel="stylesheet" href="css/control.css?v=20261022-no-verify?v=20261022-rollers" />
 </head>
 
 <body>
@@ -100,6 +100,7 @@
               </label>
             </div>
             <p class="subtext" id="bulbText">Thermostat with a 0.3°C band on each side of the target</p>
+            <p class="subtext" id="heaterStatus" role="status">Waiting for heating status</p>
             <p class="device-meta">Relay: <strong id="bulbActualState">Unknown</strong> · Control: <strong id="heaterDemandValue">Unknown</strong></p>
           </article>
 
@@ -124,7 +125,7 @@
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="turnerText">15 seconds every 2 hours by default</p>
+            <p class="subtext" id="turnerText">120 seconds every 2 hours by default</p>
             <div class="settings-grid">
             <div class="field">
               <label for="turnInterval">Turning interval</label>
@@ -139,7 +140,7 @@
             </div>
             <div class="field">
               <label for="turnDuration1">Run duration (seconds)</label>
-              <input id="turnDuration1" type="number" inputmode="numeric" min="1" max="600" step="1" value="15" aria-describedby="turnDuration1Error" disabled />
+              <input id="turnDuration1" type="number" inputmode="numeric" min="1" max="600" step="1" value="120" aria-describedby="turnDuration1Error" disabled />
               <span id="turnDuration1Error" class="field-error" role="alert"></span>
             </div>
             </div>
@@ -157,7 +158,7 @@
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="turner2Text">15 seconds every 2 hours by default</p>
+            <p class="subtext" id="turner2Text">120 seconds every 2 hours by default</p>
             <div class="settings-grid">
             <div class="field">
               <label for="turnInterval2">Turning interval</label>
@@ -172,7 +173,7 @@
             </div>
             <div class="field">
               <label for="turnDuration2">Run duration (seconds)</label>
-              <input id="turnDuration2" type="number" inputmode="numeric" min="1" max="600" step="1" value="15" aria-describedby="turnDuration2Error" disabled />
+              <input id="turnDuration2" type="number" inputmode="numeric" min="1" max="600" step="1" value="120" aria-describedby="turnDuration2Error" disabled />
               <span id="turnDuration2Error" class="field-error" role="alert"></span>
             </div>
             </div>
@@ -207,12 +208,12 @@
   </div>
 
   <script src="js/storage.js"></script>
-  <script src="js/authSession.js?v=20261022-sync"></script>
+  <script src="js/authSession.js?v=20261022-rollers"></script>
   <script src="js/app.js"></script>
-  <script src="js/espApi.js?v=20261022-sync"></script>
-  <script src="js/batchStore.js?v=20261022-sync"></script>
+  <script src="js/espApi.js?v=20261022-rollers"></script>
+  <script src="js/batchStore.js?v=20261022-nvs-prediction"></script>
   <script src="js/modal.js?v=20261021-review"></script>
   <script src="js/toastNotification.js"></script>
-  <script src="js/control.js?v=20261022-sync"></script>
+  <script src="js/control.js?v=20261022-parallel-rollers"></script>
 </body>
 </html>

@@ -25,12 +25,12 @@ OutputDevice fanRelay(
 OutputDevice turnerRelay(
   HatchConfig::TurnerRelayPin,
   HatchConfig::RelayActiveHigh,
-  "Batch 1 egg turner (IN3)"
+  "Lower roller (IN4)"
 );
 OutputDevice turner2Relay(
   HatchConfig::Turner2RelayPin,
   HatchConfig::RelayActiveHigh,
-  "Batch 2 egg turner (IN4)"
+  "Upper roller (IN3)"
 );
 RealTimeClock realTimeClock(HatchConfig::Ds3231Address);
 DataLogger dataLogger(HatchConfig::SdCardCsPin, HatchConfig::SdLogPath);

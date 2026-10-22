@@ -26,7 +26,8 @@ struct State {
   uint32_t sequence = 0, rtc = 0, startup = 0, resetReason = 0, flags = 0;
   bool automatic = true, manualHeatRequested = false;
   int32_t temperatureMilli = 37500, humidityMilli = 55000, offsetMilli = 0;
-  uint16_t interval[2] = {120,120}, duration[2] = {15,15};
+  uint16_t interval[2] = {HatchConfig::DefaultTurnIntervalMinutes,HatchConfig::DefaultTurnIntervalMinutes},
+    duration[2] = {HatchConfig::TurnerPulseMs/1000,HatchConfig::TurnerPulseMs/1000};
   Batch batches[2];
   Motor motors[2];
   bool sensorValid = false, highAlarm = false, lowAlarm = false;
@@ -40,12 +41,31 @@ constexpr bool sensorTimingCompatible(uint32_t interval,uint32_t stale) {
   return (interval==HatchConfig::SensorReadIntervalMs && stale==HatchConfig::SensorStaleAfterMs) ||
     (interval==2000 && stale==6500);
 }
+enum class CommitResult : uint8_t { Pending, Verified, Failed, TimedOut };
+constexpr CommitResult checkpointResult(uint32_t ticket,uint32_t ack,uint32_t failed,uint32_t elapsed) {
+  return !ticket ? CommitResult::Pending : ack==ticket ? CommitResult::Verified :
+    failed==ticket ? CommitResult::Failed : elapsed>HatchConfig::RecoveryCommitTimeoutMs ?
+    CommitResult::TimedOut : CommitResult::Pending;
+}
 constexpr bool uncertain(Transaction t) { return t == Transaction::Pending || t == Transaction::InProgress; }
+#if __cplusplus >= 201402L
+constexpr
+#else
+inline
+#endif
+void skipInterrupted(Motor& m,uint32_t serial,uint32_t now,uint16_t interval,bool bound) {
+  if(!bound) { m=Motor(); return; }
+  if(serial>m.cycle) m.cycle=serial;
+  m.positionHold=false; m.transaction=Transaction::Interrupted;
+  const uint32_t next=now+uint32_t(interval)*60;
+  if(m.next<next) m.next=next;
+  // issued/completed/lastSuccessfulCycle remain historical observations.
+}
 constexpr bool positionCheck(const Motor& m,uint32_t journalCycle,bool journalUncertain,bool bound) {
   return m.positionHold || uncertain(m.transaction) || journalUncertain || (bound && journalCycle>m.cycle);
 }
 constexpr bool journalAllows(uint8_t mask,uint8_t motor,bool preparing,bool running) {
-  return !mask || (mask==(1<<motor) && (preparing || running));
+  return !(mask & (1<<motor)) || preparing || running;
 }
 constexpr uint32_t reconciledNext(uint32_t now,uint32_t savedNext) {
   return savedNext<=now ? now+HatchConfig::RecoveryResumeTurnDelaySeconds : savedNext;
@@ -61,14 +81,17 @@ constexpr bool timeMatches(const State& s, uint32_t now, uint32_t floor) {
   return HatchCalendar::validEpoch(now) && s.rtc <= now && now >= floor;
 }
 // 0 means unknown. Day 1 is the first 24 hours, independent of ESP32 uptime.
+constexpr uint32_t dayFromStart(uint32_t start,uint32_t now) {
+  return !HatchCalendar::validEpoch(start) || !HatchCalendar::validEpoch(now) || now<start ? 0 : (now-start)/86400UL+1;
+}
 constexpr uint32_t day(const Batch& b, uint32_t now) {
-  return !b.start || !HatchCalendar::validEpoch(now) || now < b.start ? 0 : (now-b.start)/86400UL+1;
+  return dayFromStart(b.start,now);
 }
 inline bool valid(const State& s) {
   if (!s.sequence || !HatchCalendar::validEpoch(s.rtc) || !HatchCalendar::validEpoch(s.startup) ||
       s.startup > s.rtc || s.flags > 7 || s.temperatureMilli < 30000 || s.temperatureMilli > 37800 ||
       s.humidityMilli < 0 || s.humidityMilli > 100000 || s.offsetMilli < -2000 || s.offsetMilli > 2000 ||
-      s.pidOutputMilli > 100000 || (s.lowerOn && s.upperOn)) return false;
+      s.pidOutputMilli > 100000) return false;
   if(s.sensorValid && (s.measuredTemperatureMilli < -40000 || s.measuredTemperatureMilli > 80000 ||
       s.measuredHumidityMilli < 0 || s.measuredHumidityMilli > 100000)) return false;
   for (uint8_t i=0;i<2;++i) {

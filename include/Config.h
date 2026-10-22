@@ -39,11 +39,14 @@ constexpr uint8_t SdLogArchives = 3;
 constexpr uint16_t RecoveryMaxJsonBytes = 4096;
 constexpr uint8_t DefaultIncubationDays = 21;
 
-// Restored four-relay layout: IN1 fan, IN2 bulb, IN3 batch 1, IN4 batch 2.
+// Corrected physical layout: IN1 fan, IN2 bulb, IN3 upper, IN4 lower.
 constexpr uint8_t FanRelayPin = 14;
 constexpr uint8_t Bulb1RelayPin = 27;
-constexpr uint8_t TurnerRelayPin = 26;
-constexpr uint8_t Turner2RelayPin = 25;
+constexpr uint8_t TurnerRelayPin = 25; // lower roller
+constexpr uint8_t Turner2RelayPin = 26; // upper roller
+constexpr uint8_t RollerMappingVersion = 2;
+constexpr bool legacyRollerPins(uint8_t lower,uint8_t upper) { return lower==26 && upper==25; }
+constexpr bool currentRollerPins(uint8_t lower,uint8_t upper) { return lower==TurnerRelayPin && upper==Turner2RelayPin; }
 constexpr bool RelayActiveHigh = false;
 
 constexpr float DefaultTargetTemperatureC = 37.5f;
@@ -52,6 +55,8 @@ constexpr float FanCutoffAboveTargetC = 0.5f;
 constexpr uint16_t DefaultTurnIntervalMinutes = 120;
 
 constexpr uint32_t SensorReadIntervalMs = 5000;
+constexpr uint32_t SensorRetryIntervalMs = 2100; // fresh DHT22 frame, never a tight retry
+constexpr uint32_t SensorStartupMs = 2000;
 constexpr uint32_t SensorStaleAfterMs = 20000;
 constexpr uint8_t SensorRecoverySamples = 3;
 constexpr float SensorRecoveryStepC = 0.5f;
@@ -70,6 +75,7 @@ constexpr uint32_t RecoveryRetryIntervalMs = 30000;
 constexpr uint32_t WatchdogSeconds = 8;
 constexpr float HeaterHysteresisC = 0.3f;
 constexpr uint32_t HeaterRelayMinimumOffMs = 5000;
+constexpr uint32_t HeaterAutomaticRestartMs = 30000;
 // Legacy PID constants are retained only for old checkpoint validation.
 // Main firmware uses RelayThermostat.
 constexpr float HeaterPidKp = 20.0f;
@@ -80,7 +86,7 @@ constexpr uint32_t HeaterRelayWindowMs = 20000;
 constexpr uint32_t HeaterRelayMinimumSwitchMs = HeaterRelayMinimumOffMs;
 constexpr uint32_t HeaterWindowLateMs = 250;
 constexpr float HeaterPidRampPercentPerSecond = 2.5f;
-constexpr uint32_t TurnerPulseMs = 15000;
+constexpr uint32_t TurnerPulseMs = 120000;
 constexpr uint16_t MinManualTurnSeconds = 1;
 constexpr uint16_t MaxManualTurnSeconds = 600;
 constexpr uint32_t LcdRefreshIntervalMs = 2000;

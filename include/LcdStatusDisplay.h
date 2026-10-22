@@ -13,10 +13,10 @@ public:
   void showBoot(const String& message);
   void showStatus(
     const SensorReading& reading,
-    bool turnerOn,
+    const String& upperBatch,
+    const String& lowerBatch,
     const String& hatchDateText,
-    const String& alarmText = "",
-    const String& batchDays = ""
+    const String& alarmText = ""
   );
 
 private:

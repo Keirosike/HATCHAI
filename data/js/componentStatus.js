@@ -29,9 +29,16 @@ const HatchComponents = {
       const clockStatus=data.clockStatus || '';
       const rtcDetection=s.rtcTrusted || ['Ready','Waiting for automatic clock sync','Validating / read failed','Read failed'].includes(clockStatus) ? 'Detected' : clockStatus==='Not detected' ? 'Not detected' : 'Unknown';
       const lcdDetection=data.lcdStatus==='I2C responding' || data.lcdStatus==='Ready' ? 'Detected' : data.lcdStatus==='Not detected' ? 'Not detected' : 'Unknown';
+      let sdDetail=!r.sdAvailable ? 'Retrying automatically' : r.checkpointFault ? `Save fault: ${r.message || 'Checkpoint not verified'}` :
+        r.ready ? `Recovery verified; checkpoint ${r.sequence ?? '?'}${r.checkpointPending ? '; saving changes' : ''}` : 'Card read/write detected; recovery pending';
+      if(r.message && !r.checkpointFault && (!r.ready || !r.logging)) sdDetail+=`; Recovery: ${r.message}`;
+      if(data.sdStatus) sdDetail+=`; SD driver: ${data.sdStatus}`;
+      if(r.snapshotA && r.snapshotB) sdDetail+=`; Recovery files: A ${r.snapshotA}, B ${r.snapshotB}`;
+      if(r.sdAvailable && !r.logging) sdDetail+='; CSV logging failed; retrying automatically';
+      if(s.rtcTrusted===false) sdDetail+='; RTC time is not ready; automatic turning also needs a valid clock';
       const rows=[
-        ['DHT22',data.sensorValid ? 'Detected' : 'Not responding',data.sensorValid ? `Valid reading: ${data.temperature} C / ${data.humidity}% RH; age ${data.sensorAgeSeconds ?? '?'} s` : data.sensorError || 'No valid measurement'],
-        ['SD card',r.sdAvailable===true ? 'Detected' : r.sdAvailable===false ? 'Not detected / unavailable' : 'Unknown',(!r.sdAvailable ? 'Retrying automatically' : r.checkpointFault ? `Save fault: ${r.message}` : r.ready ? `Recovery verified; checkpoint ${r.sequence ?? '?'}${r.checkpointPending ? '; saving changes' : ''}` : 'Card read/write detected; recovery pending') + (r.sdAvailable && !r.logging ? '; CSV logging failed; retrying automatically' : '')],
+        ['DHT22',data.sensorValid ? 'Detected' : 'Not responding',data.sensorValid ? `${data.sensorRetrying ? `Retrying after ${data.sensorConsecutiveFailures ?? 1} failed read(s); last valid reading:` : 'Valid reading:'} ${data.temperature} C / ${data.humidity}% RH; age ${data.sensorAgeSeconds ?? '?'} s` : data.sensorError || 'No valid measurement'],
+        ['SD card',r.sdAvailable===true ? 'Detected' : r.sdAvailable===false ? 'Not detected / unavailable' : 'Unknown',sdDetail],
         ['RTC (DS3231)',rtcDetection,s.rtcTrusted ? data.rtcTime : data.clockSyncError || clockStatus || 'Waiting for clock validation'],
         ['LCD',lcdDetection,`${data.lcdStatus || 'Unknown'} (I2C communication; displayed text cannot be verified)`],
         ['Bulb relay',typeof c.bulbOn==='boolean' ? 'Output configured' : 'Unknown',`Commanded ${c.bulbOn ? 'ON' : 'OFF'}; no contact feedback`],
@@ -62,9 +69,9 @@ const HatchComponents = {
         });actions.append(button);
       };
       if(s.critical && s.canAcknowledge) add('Acknowledge cooled alarm','ack',{},'Confirm the cause of overheating has been checked and the incubator has cooled.');
-      [1,2].forEach(motor=>{if(r.positionHoldMask & (1<<(motor-1)))
-        add(`Verify ${motor===1 ? 'lower' : 'upper'} roller position`,'positionVerified',{motor},'Confirm you physically inspected this roller and its calibrated travel. There is no position sensor.');
-      });
+      if(r.canRebuild) add('Rebuild recovery from saved settings','recoveryInitialize',{},
+        `Check that RTC time ${data.rtcTime || '(unavailable)'} is correct. Archive the invalid recovery files and create a verified checkpoint from saved ESP32 settings and original batch dates? No new Day 1 is created. Missing egg details may need restoring from this browser. Unfinished turns are skipped; automatic turning resumes only after verified recovery and the next scheduled interval.`);
+
     } catch(error) {
       document.getElementById('componentsSummary').textContent='ESP32 unavailable. Previous component readings may be out of date.';
     } finally {

@@ -118,6 +118,10 @@
             <strong id="summaryCount">0 eggs</strong>
           </li>
           <li>
+            <span>Completed timed turns <small>(recorded since this update)</small></span>
+            <strong id="summaryTurns" aria-live="polite">No batch selected</strong>
+          </li>
+          <li>
             <span>Egg laid date</span>
             <strong id="summaryLaid">Not set</strong>
           </li>
@@ -207,6 +211,11 @@
       <div class="card-header">
         <div class="card-title">Batch Form</div>
         <span class="status-pill status-ok" id="formStatus">Ready</span>
+      </div>
+
+      <div class="form-actions" id="batchRecordActions" hidden>
+          <button class="btn btn-soft" type="button" id="editBatchRecordBtn">Edit</button>
+          <button class="btn btn-danger" type="button" id="deleteBatchRecordBtn">Delete</button>
       </div>
 
       <form class="batch-form-grid" id="batchForm" novalidate>
@@ -341,11 +350,11 @@
 
   <script src="js/app.js?v=20260728b"></script>
   <script src="js/storage.js?v=20260728b"></script>
-  <script src="js/authSession.js?v=20261022-sync"></script>
-  <script src="js/batchStore.js?v=20261022-sync"></script>
-  <script src="js/espApi.js?v=20261022-sync"></script>
+  <script src="js/authSession.js?v=20261022-rollers"></script>
+  <script src="js/batchStore.js?v=20261022-nvs-prediction"></script>
+  <script src="js/espApi.js?v=20261022-rollers"></script>
   <script src="js/modal.js?v=20260728b"></script>
   <script src="js/toastNotification.js?v=20260728b"></script>
-  <script src="js/batch.js?v=20261022-sync"></script>
+  <script src="js/batch.js?v=20261022-completed-turns"></script>
 </body>
 </html>

@@ -91,13 +91,20 @@ bool RecoveryStorage::archiveInvalid(uint8_t slot) {
   return false;
 }
 bool RecoveryStorage::commit(Commit& request) {
-  auto fail=[this](const char* detail) { fault(detail); return false; };
+  auto fail=[this,&request](const char* detail) {
+    fault(detail);
+    portENTER_CRITICAL(&_lock);
+    _status.failedTicket=request.ticket;
+    snprintf(_status.checkpointError,sizeof(_status.checkpointError),"%s",detail);
+    portEXIT_CRITICAL(&_lock);
+    return false;
+  };
   if(!status().available) return fail("Checkpoint failed: SD not available");
   HatchRecovery::State current[2]; bool valid[2]={readSlot(0,current[0]),readSlot(1,current[1])};
   uint32_t sequence=0; for(uint8_t i=0;i<2;++i) if(valid[i] && current[i].sequence>sequence) sequence=current[i].sequence;
   int8_t protectedSlot=request.protectedSlot;
   if(request.initialize) {
-    // Explicit operator initialization only. Never silently discard valid data.
+    // Empty-card/rebuild initialization never discards valid snapshots.
     if(valid[0] || valid[1]) return fail("Checkpoint failed: valid snapshots already exist; retry recovery");
     if(!archiveInvalid(0) || !archiveInvalid(1)) return fail("Checkpoint failed: could not preserve invalid snapshot files");
     protectedSlot=-1;
@@ -116,6 +123,7 @@ bool RecoveryStorage::commit(Commit& request) {
   if(!readSlot(target,check) || check.sequence!=request.state.sequence) return fail("Checkpoint failed: saved JSON/CRC validation failed");
   portENTER_CRITICAL(&_lock); _status.ack=request.ticket; _status.sequence=check.sequence;
   _status.slot=target; _status.lastSave=check.rtc; if(_status.logging) _status.error[0]=0;
+  if(request.initialize) _pair=Pair(); // archived originals are no longer active A/B slots
   _pair.state[target]=check; _pair.valid[target]=true; _pair.exists[target]=true;
   portEXIT_CRITICAL(&_lock);
   Serial.printf("[RECOVERY] Checkpoint %lu verified in %c\n",static_cast<unsigned long>(check.sequence),target?'B':'A');

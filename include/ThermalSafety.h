@@ -21,8 +21,10 @@ public:
       if (!sensorValid || uint32_t(now - sampleMs) > HatchConfig::SensorStaleAfterMs) invalidate();
       return;
     }
-    if (!sensorValid || temperature - lastTemperature > HatchConfig::SensorRecoveryStepC ||
-        lastTemperature - temperature > HatchConfig::SensorRecoveryStepC) good = 1;
+    // Qualify startup/recovery, not every normal temperature change after it.
+    if (!sensorValid || (good < HatchConfig::SensorRecoverySamples &&
+        (temperature - lastTemperature > HatchConfig::SensorRecoveryStepC ||
+         lastTemperature - temperature > HatchConfig::SensorRecoveryStepC))) good = 1;
     else if (good < HatchConfig::SensorRecoverySamples) ++good;
     filtered = sensorValid ? filtered + HatchConfig::SensorFilterAlpha *
       (temperature - filtered) : temperature;
@@ -44,6 +46,10 @@ public:
   constexpr bool ready(uint32_t now) const {
     return sensorValid && good >= HatchConfig::SensorRecoverySamples &&
       uint32_t(now - sampleMs) <= HatchConfig::SensorStaleAfterMs;
+  }
+  // Cooling demand is smoothed; hot readings always act immediately.
+  constexpr float controlTemperature() const {
+    return lastTemperature > filtered ? lastTemperature : filtered;
   }
   constexpr bool heatAllowed(uint32_t now) const { return ready(now) && !inhibited && !critical; }
   HATCH_SAFETY_CONSTEXPR bool acknowledge(uint32_t now) {

@@ -24,7 +24,8 @@ public:
     healthy = prefs.begin("hatchai-ctrl", false);
     if (!healthy) return;
     existed = prefs.isKey("profile");
-    if (!existed) { save(); return; }
+    rollerMappingChanged=existed && prefs.getUChar("roller-map",1)!=HatchConfig::RollerMappingVersion;
+    if (!existed) { if(save()) acceptRollerMapping(); return; }
     const bool migrating=prefs.getBytesLength("profile")==sizeof(LegacyDeviceProfile);
     if(migrating) {
       LegacyDeviceProfile old;
@@ -65,9 +66,17 @@ public:
       memcmp(&check, &value, sizeof(value)) == 0;
     return healthy;
   }
+  bool acceptRollerMapping() {
+    if(!healthy) return false;
+    healthy=prefs.putUChar("roller-map",HatchConfig::RollerMappingVersion)==1 &&
+      prefs.getUChar("roller-map",0)==HatchConfig::RollerMappingVersion;
+    if(healthy) rollerMappingChanged=false;
+    return healthy;
+  }
   DeviceProfile value;
   bool healthy = false;
   bool existed = false;
+  bool rollerMappingChanged = false;
 private:
   Preferences prefs;
 };

@@ -57,17 +57,23 @@ void IncubatorController::checkpointFailed(const char* message) {
   stopTurnCycle(); logSystem("RECOVERY_FAULT",message);
   for(uint8_t i=0;i<2;++i) if(_recoveryGuard.value.uncertainMask&(1<<i)) _recoveryState.motors[i].positionHold=true;
   // A runtime SD fault stops motion. An already recovered, healthy NVS/sensor
-  // control state may keep regulating temperature; boot faults never heat.
+  // control state may keep regulating temperature; internal/sensor faults still block heat.
 }
 void IncubatorController::restoreSnapshot(const State& s) {
-  stopTurnCycle(); forceHeaterOff(millis());
+  stopTurnCycle();
+  // Runtime SD repair must not replay climate requests or interrupt valid heat.
+  // Healthy NVS already supplied the active settings at boot/user update.
+  const bool preserveClimate = _profile.existed;
+  const bool liveManualHeat = _settings.heaterOn, liveFan = _settings.fanOn;
+  if (!preserveClimate) forceHeaterOff(millis());
   const uint32_t persistedFlags=_profile.value.flags;
   const auto latest=_profile.value;
   _recoveryState=s; _startupEpoch=_clock.epoch();
   _settings.targetTemperatureC=s.temperatureMilli/1000.0f; _settings.targetHumidityPercent=s.humidityMilli/1000.0f;
   _settings.temperatureOffsetC=s.offsetMilli/1000.0f;
   _settings.autoMode=_profile.existed && (latest.flags&16) ? !(latest.flags&8) : s.automatic;
-  _settings.heaterOn=false; _settings.turnerOn=_settings.turner2On=false; _settings.fanOn=true;
+  _settings.heaterOn=preserveClimate && liveManualHeat; _settings.turnerOn=_settings.turner2On=false;
+  _settings.fanOn=preserveClimate ? liveFan : true;
   _settings.turnIntervalMinutes=s.interval[0]; _settings.turnInterval2Minutes=s.interval[1];
   _settings.turnDurationSeconds=s.duration[0]; _settings.turnDuration2Seconds=s.duration[1];
   DeviceProfile& p=_profile.value;
@@ -112,7 +118,8 @@ void IncubatorController::restoreSnapshot(const State& s) {
     strcpy(p.batchId[i],b.id); p.start[i]=b.start; p.active[i]=b.status==BatchStatus::Active;
     p.duration[i]=_profile.existed ? latest.duration[i] : s.duration[i];
     p.interval[i]=_profile.existed ? latest.interval[i] : s.interval[i];
-    p.reserved[i]=b.start ? (m.issued ? m.issued : b.start) : 0;
+    p.reserved[i]=b.start ? max(latest.reserved[i],m.issued ? m.issued : b.start) : 0;
+    if(b.start) m.next=max(m.next,p.reserved[i]+uint32_t(p.interval[i])*60);
     if(positionCheck(m,_recoveryGuard.value.serial[i],_recoveryGuard.value.uncertainMask&(1<<i),b.id[0]) ||
         (b.id[0] && (!_profile.existed || !_recoveryGuard.existed))) {
       m.positionHold=true; _recoveryGuard.value.uncertainMask|=1<<i;
@@ -123,22 +130,33 @@ void IncubatorController::restoreSnapshot(const State& s) {
     _seenLockdown[i]=b.start && s.rtc>=lockdown(b);
   }
   _resumeTurnsAfter=_clock.epoch()+HatchConfig::RecoveryResumeTurnDelaySeconds;
-  _safety.invalidate(); _currentReading.valid=false;
+  if (!preserveClimate) { _safety.invalidate(); _currentReading.valid=false; }
   persistProfile(); _recoveryGuard.save();
 }
 bool IncubatorController::retryRecovery() {
   if(_checkpointTicket || _turnCycles[0].active || _turnCycles[1].active || _preparingMotor>=0) return false;
   if(!_logger.storage().reload()) return false;
-  // A missing card must not create a periodic OFF/ON heat pulse. Successful
-  // snapshot restoration requalifies heat separately from this asynchronous retry.
+  // Reload motor recovery independently of the live sensor/climate state.
   stopTurnCycle(); _recoveryReady=false; _recoveryLoaded=false;
   _checkpointFault=false; _sequenceReserved=false; _checkpointDirty=false;
   _recoveryMessage="Reloading recovery files"; _recoveryLoadStartedMs=millis(); return true;
 }
+bool IncubatorController::canRebuildRecovery() const {
+  if(_recoveryReady || !_recoveryLoaded || _checkpointTicket || _preparingMotor>=0 ||
+      _turnCycles[0].active || _turnCycles[1].active || !_profile.healthy || !_recoveryGuard.healthy ||
+      !_clock.isReady() || !_safety.ready(millis()) || (_safety.critical && _safety.lastTemperature>HatchConfig::HeaterResumeC) ||
+      !_logger.storage().status().available || _recoveryPair.valid[0] || _recoveryPair.valid[1] ||
+      _clock.epoch()<_recoveryGuard.value.lastRtc) return false;
+  for(uint8_t i=0;i<2;++i) if(_profile.value.batchId[i][0] &&
+      (!HatchCalendar::validEpoch(_profile.value.start[i]) || _profile.value.start[i]>_clock.epoch() ||
+       _profile.value.reserved[i]>_clock.epoch())) return false;
+  return true;
+}
 bool IncubatorController::initializeRecovery(bool automatic) {
+  if(!automatic && !canRebuildRecovery()) return false;
   if(_recoveryReady || _checkpointTicket || !_profile.healthy || !_recoveryGuard.healthy || !_clock.isReady() ||
       !_safety.ready(millis()) || _clock.epoch()<_recoveryGuard.value.lastRtc || !_logger.storage().status().available) return false;
-  stopTurnCycle(); forceHeaterOff(millis());
+  stopTurnCycle();
   _startupEpoch=_clock.epoch(); _recoveryState=State();
   for(uint8_t i=0;i<2;++i) {
     Batch& b=_recoveryState.batches[i]; Motor& m=_recoveryState.motors[i];
@@ -157,43 +175,40 @@ bool IncubatorController::initializeRecovery(bool automatic) {
   if(!automatic) _profile.value.flags&=~2UL;
   if(!persistProfile() || !_recoveryGuard.save()) return false;
   _checkpointFault=false; _recoveryLoaded=true;
-  _recoveryMessage="Saving reviewed device settings and original batch dates";
+  _recoveryMessage="Saving durable device settings and original batch dates";
   return requestCheckpoint(CommitPurpose::Initialize,_activeSnapshot<0);
 }
-bool IncubatorController::acknowledgePosition(uint8_t motor) {
-  if(motor>=1 && motor<=2 && !_turnCycles[0].active && !_turnCycles[1].active && _preparingMotor<0 &&
-      (_profile.value.flags&2) && _profile.healthy) {
-    _profile.value.flags&=~2UL; if(!persistProfile()) return false;
+void IncubatorController::recoverInterruptedRollers() {
+  if(!_profile.healthy || !_recoveryGuard.healthy || !_watchdog.healthy ||
+      !_safety.ready(millis()) || _safety.critical) return;
+  const uint32_t now=_clock.isReady() ? _clock.epoch() : 0;
+  if((_profile.value.batchId[0][0] || _profile.value.batchId[1][0]) && !now) return;
+  uint8_t skipped=0;
+  for(uint8_t i=0;i<2;++i) {
+    auto& m=_recoveryState.motors[i];
+    if(_turnCycles[i].active || _preparingMotor==i ||
+        (_checkpointTicket && _commitMotor==i && _commitPurpose!=CommitPurpose::Normal) ||
+        (_finishAwaiting[i] && !_checkpointFault)) continue;
+    if(!m.positionHold && !(_recoveryGuard.value.uncertainMask&(1<<i)) && !uncertain(m.transaction)) continue;
+    motorOutput(i).set(false);
+    if(_profile.value.batchId[i][0]) _profile.value.reserved[i]=max(_profile.value.reserved[i],now);
+    skipInterrupted(m,_recoveryGuard.value.serial[i],now,motorInterval(i),_recoveryState.batches[i].id[0]);
+    _finishAwaiting[i]=false; skipped|=1<<i;
   }
-  if (motor>=1 && motor<=2 && !_settings.autoMode && !_turnCycles[0].active && !_turnCycles[1].active &&
-      _preparingMotor<0 && systemReady() && _safety.ready(millis()) && !_safety.critical && _recoveryGuard.healthy) {
-    const uint8_t i=motor-1;
-    _recoveryGuard.value.uncertainMask&=~(1<<i);
-    if (!_recoveryGuard.save()) return false;
-    _recoveryState.motors[i].positionHold=false;
-    _recoveryState.motors[i].transaction=Transaction::Idle;
-    if (_recoveryReady && _recoveryState.batches[i].id[0] && _clock.isReady()) {
-      _recoveryState.motors[i].cycle=_recoveryGuard.value.serial[i];
-      _recoveryState.motors[i].next=_clock.epoch()+uint32_t(motorInterval(i))*60;
-    }
-    if (_recoveryReady) requestStateSave();
-    logSystem("MANUAL_POSITION_CHECK",String(motor)); return true;
-  }
-  if(motor<1 || motor>2 || !_recoveryReady || _checkpointTicket || _preparingMotor>=0 ||
-      (_profile.value.flags&2) || _turnCycles[0].active || _turnCycles[1].active ||
-      !systemReady() || !_clock.isReady() || !_safety.ready(millis())) return false;
-  const uint8_t i=motor-1; Motor& m=_recoveryState.motors[i];
-  if(!m.positionHold && !(_recoveryGuard.value.uncertainMask&(1<<i))) return false;
-  m.positionHold=false; m.transaction=Transaction::Idle;
-  if(_recoveryState.batches[i].start) m.next=_clock.epoch()+uint32_t(motorInterval(i))*60;
-  _preparingMotor=i;
-  const bool accepted=requestCheckpoint(CommitPurpose::Position); _preparingMotor=-1;
-  if(!accepted) m.positionHold=true;
-  return accepted;
+  if(!skipped) return;
+  if(_settings.autoMode && (_profile.value.active[0] || _profile.value.active[1])) _profile.value.flags|=2;
+  // Persist the no-replay reservation before clearing the unfinished NVS intent.
+  if(!persistProfile()) return;
+  _recoveryGuard.value.uncertainMask&=~skipped;
+  if(now) _recoveryGuard.value.lastRtc=max(_recoveryGuard.value.lastRtc,now);
+  if(!_recoveryGuard.save()) return;
+  requestStateSave();
+  logSystem("INTERRUPTED_TURN_SKIPPED",String(skipped));
 }
 void IncubatorController::updateRecovery(uint32_t nowMs) {
   const auto storage=_logger.storage().status();
-  if((!storage.available || (storage.loaded && !storage.logging) || _checkpointFault) && !_checkpointTicket && !_turnCycles[0].active &&
+  if((!storage.available || (storage.loaded && !storage.logging) || _checkpointFault ||
+      (!_recoveryReady && _recoveryLoaded && (_recoveryPair.valid[0] || _recoveryPair.valid[1]))) && !_checkpointTicket && !_turnCycles[0].active &&
       !_turnCycles[1].active && _preparingMotor<0 &&
       uint32_t(nowMs-_lastAutoRecoveryMs)>=HatchConfig::RecoveryRetryIntervalMs) {
     _lastAutoRecoveryMs=nowMs;
@@ -210,18 +225,30 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
     _activeSnapshot=select(_recoveryPair.valid[0]?&_recoveryPair.state[0]:nullptr,
       _recoveryPair.valid[1]?&_recoveryPair.state[1]:nullptr,_clock.epoch(),_recoveryGuard.value.lastRtc);
     _recoveryLoaded=true;
-    if(_activeSnapshot<0) { _recoveryMessage=_recoveryPair.exists[0] || _recoveryPair.exists[1] ? "No valid recovery snapshot; existing files preserved for service. Check clock and card." : "Preparing automatic save from durable device settings."; return; }
+    if(_activeSnapshot<0) {
+      _recoveryMessage=_recoveryPair.valid[0] || _recoveryPair.valid[1] ?
+        "Valid snapshot found but recovery time conflicts with the RTC or saved clock floor. Correct the clock; saved files are preserved." :
+        _recoveryPair.exists[0] || _recoveryPair.exists[1] ?
+        "Recovery files failed validation; originals preserved. Check RTC time, then rebuild from saved device settings in Component status." :
+        "Preparing automatic save from durable device settings.";
+      return;
+    }
     const State& saved=_recoveryPair.state[_activeSnapshot];
     if(_clock.epoch()-saved.rtc>HatchConfig::MaximumUnreviewedOfflineSeconds)
       logSystem("LONG_POWER_GAP","RTC and cutoff determine current batch age; missed turns are not replayed");
     restoreSnapshot(saved);
     _recoveryMessage="Recovered batch dates; validating sensors and saving startup checkpoint";
     if(!requestCheckpoint(CommitPurpose::Startup)) checkpointFailed("Startup checkpoint could not be queued");
+    // nowMs and storage predate the new request. Observe its result next update
+    // so unsigned elapsed time cannot wrap and report an immediate timeout.
+    return;
   }
   if(_checkpointTicket) {
-    if(storage.ack==_checkpointTicket) {
+    const auto result=checkpointResult(_checkpointTicket,storage.ack,storage.failedTicket,uint32_t(nowMs-_checkpointRequestedMs));
+    if(result==CommitResult::Verified) {
       const CommitPurpose purpose=_commitPurpose; const int8_t motor=_commitMotor;
       _checkpointTicket=0; _activeSnapshot=storage.slot; _recoveryState.sequence=storage.sequence;
+      _logger.storage().loaded(_recoveryPair);
       _lastCheckpointMs=nowMs;
       logSystem("CHECKPOINT_VERIFIED",String(storage.sequence));
       if(purpose==CommitPurpose::Startup || purpose==CommitPurpose::Initialize) {
@@ -229,7 +256,7 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
         _recoveryReady=_recoveryGuard.save(); _checkpointFault=!_recoveryReady;
         if(_recoveryReady) { _profile.existed=true; _recoveryGuard.existed=true; }
         _recoveryMessage=_recoveryReady ? "Batch timing restored from RTC; outputs recalculated from current sensors" : "Recovery journal write failed";
-        forceHeaterOff(nowMs);
+        // A verified SD checkpoint does not change heater demand or sensor freshness.
         char line[160]; snprintf(line,sizeof(line),"%lu,%u,%lu,%s,%u\n",static_cast<unsigned long>(_clock.epoch()),unsigned(_watchdog.reason),
           static_cast<unsigned long>(storage.sequence),_recoveryReady?"restored":"fault",_recoveryGuard.value.uncertainMask);
         _logger.storage().log(RecoveryStorage::Recovery,line); logSystem("STARTUP_RECOVERY",_recoveryMessage);
@@ -239,7 +266,7 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
           if(!requestCheckpoint(CommitPurpose::Start)) checkpointFailed("Motor start checkpoint could not be queued");
         } else stopTurnCycle(motor+1);
       } else if(purpose==CommitPurpose::Start && motor>=0 && _preparingMotor==motor) {
-        if(motorAllowed(motor,nowMs) && HatchTurning::idle(_turnCycles[0].active,_turnCycles[1].active,nowMs,_motorOffMs)) {
+        if(motorAllowed(motor,nowMs) && HatchTurning::canStart(_turnCycles[motor].active,nowMs,_motorOffMs[motor])) {
           _turnCycles[motor].start(nowMs,_preparingPulseMs); motorOutput(motor).set(true);
           logMotor(motor,"relay_energized_after_verified_intent"); _preparingMotor=-1;
         } else stopTurnCycle(motor+1);
@@ -257,9 +284,20 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
           }
         }
       }
-    } else if(uint32_t(nowMs-_checkpointRequestedMs)>HatchConfig::RecoveryCommitTimeoutMs) {
-      checkpointFailed("SD checkpoint timeout. Motors OFF; verify position and retry recovery.");
+    } else if(result==CommitResult::Failed) {
+      checkpointFailed(storage.checkpointError[0] ? storage.checkpointError : "SD checkpoint write failed");
+    } else if(result==CommitResult::TimedOut) {
+      checkpointFailed("SD checkpoint timeout. Automatic turning paused; retrying recovery.");
     }
+  }
+  // Both invalid copies can be rebuilt only from previously existing healthy NVS.
+  // canRebuildRecovery enforces clock floor, sensor readiness and idle motors.
+  // The worker independently refuses valid snapshots and preserves invalid files.
+  if (!_recoveryReady && _recoveryLoaded && !_checkpointTicket && !_checkpointFault &&
+      _profile.existed && _recoveryGuard.existed &&
+      (_recoveryPair.exists[0] || _recoveryPair.exists[1]) && canRebuildRecovery()) {
+    if (!initializeRecovery(false)) checkpointFailed("Automatic recovery rebuild could not be queued; retrying");
+    else logSystem("RECOVERY_REBUILD", "Rebuild queued; preserve invalid originals before writing NVS dates; unfinished turns will be skipped");
   }
   // Empty cards initialize automatically from durable NVS settings. Existing
   // recovery files must validate; corrupt records stay intact for service.
@@ -306,7 +344,7 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
   }
 }
 void IncubatorController::finishMotor(uint8_t i) {
-  motorOutput(i).set(false); _turnCycles[i].active=false; _motorOffMs=millis();
+  motorOutput(i).set(false); _turnCycles[i].active=false; _motorOffMs[i]=millis();
   Motor& m=_recoveryState.motors[i]; m.transaction=Transaction::Completed;
   const uint32_t previousCompleted=m.completed;
   m.completed=_clock.epoch(); m.lastSuccessfulCycle=m.cycle; m.next=m.completed+uint32_t(motorInterval(i))*60;
@@ -317,7 +355,7 @@ void IncubatorController::finishMotor(uint8_t i) {
   if(_checkpointTicket) { requestStateSave(); return; }
   _preparingMotor=i;
   const bool accepted=requestCheckpoint(CommitPurpose::Finish); _preparingMotor=-1;
-  if(!accepted) { m.positionHold=true; checkpointFailed("Completion checkpoint failed; motor position requires verification"); }
+  if(!accepted) { m.positionHold=true; checkpointFailed("Completion checkpoint failed; automatic turning paused until SD recovery."); }
 }
 String IncubatorController::buildRecoveryJson() const {
   const auto s=_logger.storage().status();
@@ -328,7 +366,10 @@ String IncubatorController::buildRecoveryJson() const {
   json+=",\"commitActive\":"+HatchJson::boolValue(_checkpointTicket!=0);
   json+=",\"sequence\":"+String(s.sequence)+",\"lastSaveEpoch\":"+String(s.lastSave);
   json+=",\"errors\":"+String(s.errors)+",\"droppedLogRecords\":"+String(s.dropped);
-  json+=",\"canInitialize\":"+HatchJson::boolValue(!_recoveryReady && _recoveryLoaded && !_checkpointTicket && s.available && _clock.isReady() && _profile.healthy && _recoveryGuard.healthy && _safety.ready(millis()));
+  json+=",\"snapshotA\":"+HatchJson::quote(_recoveryPair.valid[0] ? "Valid" : _recoveryPair.exists[0] ? "Invalid" : "Missing");
+  json+=",\"snapshotB\":"+HatchJson::quote(_recoveryPair.valid[1] ? "Valid" : _recoveryPair.exists[1] ? "Invalid" : "Missing");
+  json+=",\"canRebuild\":"+HatchJson::boolValue(canRebuildRecovery() && (_recoveryPair.exists[0] || _recoveryPair.exists[1]));
+  json+=",\"canInitialize\":"+HatchJson::boolValue(canRebuildRecovery());
   uint8_t positionMask=_recoveryGuard.value.uncertainMask; for(uint8_t i=0;i<2;++i) if(_recoveryState.motors[i].positionHold) positionMask|=1<<i;
   json+=",\"positionHoldMask\":"+String(positionMask);
   json+=",\"canRetry\":"+HatchJson::boolValue(!_checkpointTicket && !_turnCycles[0].active && !_turnCycles[1].active && _preparingMotor<0);

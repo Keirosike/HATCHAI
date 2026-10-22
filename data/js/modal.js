@@ -43,6 +43,8 @@ window.HatchModal = {
     document.addEventListener("keydown", (event) => {
       if (!this.modal.classList.contains("active")) return;
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation(); // dismiss only this top confirmation dialog
         this.close();
       } else if (event.key === "Tab") {
         const buttons = [this.confirmBtn, this.cancelBtn];

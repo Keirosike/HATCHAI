@@ -47,8 +47,8 @@ Hardware pins and default settings are defined in `include/Config.h`.
 | DHT22 temperature/humidity sensor | DATA on GPIO 4 |
 | Heating bulb relay (IN2) | GPIO 27 |
 | Fan relay (IN1) | GPIO 14 |
-| Batch 1 turner relay (IN3) | GPIO 26 |
-| Batch 2 turner relay (IN4) | GPIO 25 |
+| Upper roller relay (IN3) | GPIO 26 |
+| Lower roller relay (IN4) | GPIO 25 |
 | Relay polarity | Active-low |
 | I2C SDA | GPIO 21 |
 | I2C SCL | GPIO 22 |
@@ -192,10 +192,11 @@ If an existing log file has an incompatible header, the code renames it to a
 
 ## 9. LCD Display
 
-The existing 20x4 LCD driver and two-second refresh remain. Temperature and
-humidity occupy the first two lines, the third shows the two restored batch days or a short
-safety alarm/hold, and the fourth retains the generic hatch prediction.
-The generic prediction uses the first active physical batch and RTC elapsed time.
+The 20x4 LCD refreshes every two seconds: line 1 temperature/RH, line 2 Upper
+batch label, line 3 Lower batch label, line 4 estimated hatch date. For two distinct
+batches, the final line alternates Est U/Est L every six seconds using each batch's
+RTC-based incubation day. A single batch, including Both rollers, has one estimate.
+Alarms/holds retain priority on line 4. See [roller/LCD update](ROLLER_BATCH_LCD_UPDATE.md).
 Bound `/api/predict` requests also use the device's restored start timestamp.
 An invalid RTC makes the day unavailable. LCD messages are not evidence of
 actual hatching or motor motion.
@@ -489,7 +490,7 @@ Completed and Failed batches are not shown in the dashboard batch selector.
 
 The Control page requires matching relay pins and `safety.version=2`.
 It shows separate Lower and Upper controls with their saved batch labels and interval
-choices. Default durations are 15 seconds and are editable for calibrated
+choices. Default durations are 120 seconds and are editable for calibrated
 automatic/manual travel. It shows actual outputs separately from heating requests.
 The fan switch sends a manual request; automatic/heating/sensor/thermal overrides keep circulation ON when required.
 

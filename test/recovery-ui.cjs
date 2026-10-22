@@ -25,7 +25,7 @@ const server=http.createServer((request,response)=>{
     const start=Date.UTC(2026,9,10,14,30)/1000,end=start+17*86400;
     const state={temperature:37.5,humidity:55,sensorValid:true,sensorAgeSeconds:1,sensorStatus:'Connected',wifiStatus:'Connected',
       rtcTime:'RTC unavailable',clockStatus:'Waiting for automatic clock sync',clockSyncNeeded:true,lcdStatus:'I2C responding',
-      relayPins:{bulb:27,fan:14,turner:26,turner2:25},
+      relayPins:{bulb:27,fan:14,turner:25,turner2:26},
       control:{autoMode:true,manualBulbOn:false,manualFanOn:true,bulbOn:false,fanOn:true,turnerOn:false,turner2On:false,
         temperatureOffset:0,targetTemperature:37.5,targetHumidity:55,turnDurationSeconds:15,turnDuration2Seconds:15,
         turnIntervalMinutes:120,turnInterval2Minutes:120,heaterControl:'thermostat_hysteresis',heaterDutyPercent:null,heaterOnBelow:37.2,heaterOffAbove:37.8},
@@ -52,6 +52,10 @@ const server=http.createServer((request,response)=>{
             if(clockReject)return await route.fulfill({status:409,json:{message:'Clock older than durable recovery time'}});
             state.clockSyncNeeded=false;state.rtcTime=body.dateTime.replace('T',' ');state.clockStatus='Ready';
             state.safety.rtcTrusted=true;state.safety.message='Temperature safety checks passed';
+          } else if(body.action==='recoveryInitialize') {
+            check(state.recovery.canRebuild,'Repair is offered only for firmware-approved invalid snapshots');
+            state.recovery.canRebuild=false;state.recovery.ready=false;state.recovery.checkpointPending=true;
+            state.recovery.message='Saving reviewed device settings and original batch dates';
           } else if(body.action==='positionVerified') {
             const i=Number(body.motor)-1;state.recovery.positionHoldMask&=~(1<<i);state.safety.batches[i].positionHold=false;
           } else throw new Error('Unexpected recovery action '+body.action);
@@ -76,14 +80,45 @@ const server=http.createServer((request,response)=>{
     check((await Promise.all(['DHT22','SD card','RTC (DS3231)','LCD'].map(detection))).every(value=>value==='Detected'),
       'Responding sensor, SD, RTC and LCD show simple Detected messages');
     check(text.includes('recovery pending')&&!text.includes('Recovery verified'),'Detected card is distinguished from a verified checkpoint');
+    state.sensorRetrying=true;state.sensorConsecutiveFailures=2;state.sensorAgeSeconds=9;await refresh();
+    check((await page.locator('#componentsList').innerText()).includes('Retrying after 2 failed read(s); last valid reading:'),'Transient DHT22 errors explicitly distinguish retained readings from a new sample');
+    state.sensorRetrying=false;state.sensorConsecutiveFailures=0;
+    check(text.includes('Preparing automatic save'),'Pending recovery exposes the real firmware reason below Detected');
+    state.recovery.message='No valid recovery snapshot; existing files preserved for service. Check clock and card.';
+    state.sdStatus='Ready (queued logging)';await refresh();
+    check((await page.locator('#componentsList').innerText()).includes('No valid recovery snapshot')&&
+      (await page.locator('#componentsList').innerText()).includes('SD driver: Ready (queued logging)'),
+      'Readable card and invalid recovery snapshot are reported separately');
+    state.safety.rtcTrusted=false;state.recovery.message='Waiting for automatic clock sync';await refresh();
+    check((await page.locator('#componentsList').innerText()).includes('RTC time is not ready'),'Clock recovery wait is visible rather than hidden behind Detected');
+    state.safety.rtcTrusted=true;state.recovery.message='Preparing automatic save';
     check(await page.locator('#componentActions button').count()===0,'Healthy recovery and time need no setup or arming button');
+    state.recovery.canRebuild=true;state.recovery.snapshotA='Invalid';state.recovery.snapshotB='Invalid';
+    state.recovery.message='Recovery files failed validation; originals preserved';await refresh();
+    check((await page.locator('#componentsList').innerText()).includes('A Invalid, B Invalid'),'Component details show which recovery files failed validation');
+    await page.getByRole('button',{name:'Rebuild recovery from saved settings'}).click();
+    check((await page.locator('#modalMessage').innerText()).includes('original batch dates')&&
+      (await page.locator('#modalMessage').innerText()).includes('Archive the invalid recovery files'),'Repair confirmation explains preserved originals and original dates');
+    const beforeRepair=writes.length;await page.locator('#modalCancelBtn').click();
+    check(writes.length===beforeRepair,'Cancelling snapshot repair sends no device mutation');
+    await page.locator('#componentsStatusBtn').click();await page.waitForFunction(()=>!HatchComponents.loading);
+    await page.getByRole('button',{name:'Rebuild recovery from saved settings'}).click();await page.locator('#modalConfirmBtn').click();
+    await page.waitForFunction(()=>document.getElementById('componentsDialog').open&&!HatchComponents.loading);
+    check(writes.at(-1).action==='recoveryInitialize'&&!state.recovery.ready,'Confirmed repair queues initialization without claiming a verified checkpoint');
+    check(await page.getByRole('button',{name:'Rebuild recovery from saved settings'}).count()===0,'Repair action disappears while its checkpoint is pending');
+    state.recovery.snapshotA='Valid';state.recovery.snapshotB='Missing';
+    state.recovery.message='Valid snapshot found but recovery time conflicts with the RTC';await refresh();
+    check(await page.getByRole('button',{name:'Rebuild recovery from saved settings'}).count()===0,'Clock conflict with a valid snapshot has no destructive repair action');
+
     state.recovery.ready=true;state.recovery.sequence=257;state.recovery.checkpointPending=true;
     await refresh();
     check((await page.locator('#componentsList').innerText()).includes('checkpoint 257; saving changes'),'Pending changes do not masquerade as a new verified commit');
     state.recovery.checkpointPending=false;state.recovery.checkpointFault=true;state.recovery.logging=false;
+    state.sdStatus='CSV append/readback failed; record not durable';
     state.recovery.message='SD write/readback mismatch';await refresh();
     check((await page.locator('#componentsList').innerText()).includes('Save fault: SD write/readback mismatch'),'Checkpoint failure reports its readback error');
     check((await page.locator('#componentsList').innerText()).includes('CSV logging failed'),'CSV logging failure remains visible separately');
+    check((await page.locator('#componentsList').innerText()).includes('SD driver: CSV append/readback failed; record not durable'),'SD driver error remains visible alongside a checkpoint failure');
     check(await detection('SD card')==='Detected','A checkpoint write failure does not incorrectly label a detected card missing');
     state.recovery.sdAvailable=false;state.safety.rtcTrusted=false;state.clockStatus='Not detected';state.lcdStatus='Not detected';
     state.sensorValid=false;state.sensorError='DHT22 read failed';await refresh();
@@ -93,15 +128,7 @@ const server=http.createServer((request,response)=>{
     state.recovery.sdAvailable=true;state.safety.rtcTrusted=true;state.clockStatus='Ready';state.lcdStatus='I2C responding';state.sensorValid=true;
     state.recovery.checkpointFault=false;state.recovery.logging=true;state.recovery.positionHoldMask=3;
     state.safety.batches.forEach(b=>{b.positionHold=true;b.status='Verify motor position before resuming';});await refresh();
-    for(const motor of [1,2]) {
-      await page.getByRole('button',{name:`Verify ${motor===1?'lower':'upper'} roller position`}).click();
-      check((await page.locator('#modalMessage').innerText()).includes('physically inspected'),'Interrupted movement confirmation requires actual position inspection');
-      if(motor===1){await page.locator('#modalCancelBtn').click();check(!writes.some(w=>w.action==='positionVerified'),'Cancelling inspection sends no acknowledgment');await page.locator('#componentsStatusBtn').click();await page.waitForFunction(()=>!HatchComponents.loading);await page.getByRole('button',{name:'Verify lower roller position'}).click();}
-      await page.locator('#modalConfirmBtn').click();
-      await page.waitForFunction(()=>document.getElementById('componentsDialog').open&&!HatchComponents.loading);
-      check(writes.at(-1).action==='positionVerified'&&writes.at(-1).motor===String(motor),'Only the inspected roller position is acknowledged');
-    }
-    check(state.recovery.positionHoldMask===0,'Both interrupted positions clear after their separate confirmations');
+    check(await page.getByRole('button',{name:/Confirm .* roller position/}).count()===0,'No manual position confirmation is offered; firmware skips interrupted turns automatically');
     for(const width of [375,812,1280]) {
       await page.setViewportSize({width,height:900});
       check(await page.locator('#componentsDialog').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.height<=innerHeight;}),'Component modal fits at '+width+'px');
@@ -119,14 +146,17 @@ const server=http.createServer((request,response)=>{
     check(writes.filter(w=>w.action==='clockAuto').length===attempts,'Failed clock sync is throttled instead of retried on every read');
     state.clockSyncNeeded=false;state.safety.rtcTrusted=true;state.safety.batches.forEach(b=>b.positionHold=false);
     await page.goto(origin+'/control.html');await page.waitForFunction(()=>!HatchControl.isLoading);
+    check(await page.locator('#verifyRoller1Btn, #verifyRoller2Btn').count()===0,'Control roller cards have no Verify buttons or reserved space');
     const restored=await page.evaluate(()=>HatchBatchStore.loadBatches());
     check(restored.length===1&&restored[0].roller===3,'The same saved batch on both rollers imports once with Both selected');
     check(restored[0].startDate==='2026-10-10'&&restored[0].startTime==='14:30:00'&&restored[0].turningEnd==='2026-10-27T14:30:00','Recovery preserves exact start and turning-end timestamps');
     check(restored[0].count===24&&restored[0].name==='Shared chicken flock','Recovered batch retains its actual egg count and name');
     check(await page.evaluate(data=>HatchBatchStore.getDeviceBatchDay(HatchBatchStore.loadBatches()[0],data).rawDay,state)===11,'Recovered incubation day uses RTC elapsed time');
+    check(await page.evaluate(data=>{data.recovery.ready=false;return HatchBatchStore.getDeviceBatchDay(HatchBatchStore.loadBatches()[0],data).rawDay===11;},state),'Trusted device day remains available during an SD recovery fault');
+    check(await page.evaluate(data=>{data.safety.storageReady=false;return !HatchBatchStore.getDeviceBatchDay(HatchBatchStore.loadBatches()[0],data).valid;},state),'Invalid internal settings still block the bound batch day');
     check(await page.evaluate(data=>{data.safety.rtcTrusted=false;return !HatchBatchStore.getDeviceBatchDay(HatchBatchStore.loadBatches()[0],data).valid;},state),'Unknown RTC never invents a bound-batch Day 1');
     check(await page.locator('#safetyPanel').count()===0&&await page.locator('#recoveryPanel').count()===0,'Control has no safety or scheduled-turning setup panel');
-    check(writes.every(w=>['clockAuto','positionVerified'].includes(w.action)),'Status/recovery checks issue no heater or motor Run commands');
+    check(writes.every(w=>['clockAuto','positionVerified','recoveryInitialize'].includes(w.action)),'Status/recovery checks issue no heater or motor Run commands');
     check(maxActive===1,'Recovery and clock requests remain serialized');check(errors.length===0,'Recovery/component UI has no browser JavaScript errors');
     console.log(JSON.stringify({passed:checks.length,checks},null,2));await context.close();
   } finally {await browser.close();server.close();}

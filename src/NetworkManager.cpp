@@ -320,8 +320,11 @@ bool NetworkManager::saveConnectedCredentials() {
 }
 
 void NetworkManager::startMdns() {
+  // AP and station share one responder; adding the same service twice fails.
+  if (_mdnsStarted) return;
   if (MDNS.begin("hatchai")) {
-    MDNS.addService("http", "tcp", HatchConfig::WebServerPort);
+    _mdnsStarted = MDNS.addService("http", "tcp", HatchConfig::WebServerPort);
+    if (!_mdnsStarted) MDNS.end();
   }
 }
 

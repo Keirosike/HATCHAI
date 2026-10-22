@@ -11,6 +11,16 @@ constexpr unsigned long SessionTimeoutMs = 90000;
 const char* AccountNamespace = "hatchai";
 const char* DefaultUsername = "admin";
 const char* DefaultPassword = "1234";
+// Final GET route uses the existing static-file/404 handling without sending
+// every successful asset request through WebServer's error-logged onNotFound.
+class StaticFileUri final : public Uri {
+public:
+  StaticFileUri() : Uri("/") {}
+  Uri* clone() const override { return new StaticFileUri(); }
+  bool canHandle(const String& path, std::vector<String>&) override {
+    return path.startsWith("/");
+  }
+};
 }
 
 HatchWebServer::HatchWebServer(
@@ -61,7 +71,8 @@ void HatchWebServer::registerRoutes() {
   _server.on("/api/wifi/forget", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on("/connect-wifi", HTTP_POST, [this]() { handleWifiConnect(); });
   _server.on("/connect-wifi", HTTP_OPTIONS, [this]() { handleOptions(); });
-  _server.onNotFound([this]() { handleStaticFile(); });
+  _server.on(StaticFileUri(), HTTP_GET, [this]() { handleStaticFile(); });
+  _server.onNotFound([this]() { sendNotFound(); });
 }
 
 void HatchWebServer::handleApiData() {
@@ -71,6 +82,13 @@ void HatchWebServer::handleApiData() {
 void HatchWebServer::handleApiControl() {
   ControlSettings settings = _controller.settings();
 
+  const bool wasAutomatic=settings.autoMode;
+  const bool requestedAutomatic=parseBoolArg("autoMode",settings.autoMode);
+  const bool relayRequest=_server.hasArg("bulbOn") || _server.hasArg("fanOn") ||
+    _server.hasArg("turnerOn") || _server.hasArg("turner2On");
+  if(relayRequest && (wasAutomatic || requestedAutomatic)) {
+    sendJson("{\"ok\":false,\"message\":\"Switch to Manual mode before controlling relays.\"}",409); return;
+  }
   settings.autoMode = parseBoolArg("autoMode", settings.autoMode);
   settings.heaterOn = parseBoolArg("bulbOn", settings.heaterOn);
   settings.fanOn = parseBoolArg("fanOn", settings.fanOn);
@@ -96,6 +114,9 @@ void HatchWebServer::handleApiControl() {
 }
 
 void HatchWebServer::handleApiTurn() {
+  if(_controller.settings().autoMode) {
+    sendJson("{\"ok\":false,\"message\":\"Switch to Manual mode before starting or stopping a roller.\"}",409); return;
+  }
   const String motor = _server.hasArg("motor") ? _server.arg("motor") : "both";
   if (motor != "both" && motor != "1" && motor != "2") {
     sendJson("{\"ok\":false,\"message\":\"motor must be 1, 2, or both\"}", 400);
@@ -130,8 +151,10 @@ void HatchWebServer::handleApiTurn() {
     }
     pulseMs = static_cast<uint32_t>(seconds) * 1000UL;
   }
-  if (!_controller.triggerTurnCycle(selectedMotor, pulseMs,parseBoolArg("manual",false))) {
-    sendJson("{\"ok\":false,\"message\":\"Turner blocked. In manual mode check sensor, temperature and interrupted position; assigned batches must be active before lockdown. Automatic mode also requires enabled turning and verified SD recovery.\"}", 409);
+  // HTTP manual Run/ON requires Manual mode and remains independent of SD.
+  // The scheduler invokes its own SD-verified path inside the controller.
+  if (!_controller.triggerTurnCycle(selectedMotor, pulseMs,true)) {
+    sendJson("{\"ok\":false,\"message\":"+HatchJson::quote(_controller.manualTurnBlockedReason(selectedMotor))+"}", 409);
     return;
   }
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
@@ -159,8 +182,7 @@ void HatchWebServer::handleApiSafety() {
   else if (action == "recoveryRetry") ok = _controller.retryRecovery();
   else if (action == "recoveryInitialize") ok = _controller.initializeRecovery();
   else if (action == "positionVerified") {
-    const String motor=_server.arg("motor");
-    if(motor=="1" || motor=="2") ok=_controller.acknowledgePosition(motor.toInt());
+    sendJson("{\"ok\":false,\"message\":\"Position verification is no longer required. Refresh the dashboard; interrupted turns recover automatically.\"}",409); return;
   }
   else if (action == "batch") {
     const String motor = _server.arg("motor");
@@ -183,7 +205,8 @@ void HatchWebServer::handleApiSafety() {
   if (!ok) {
     const String message=action=="clockAuto" ? "Automatic clock sync could not be verified. Check RTC connection, browser time and saved recovery dates; wait for a motor run to finish." :
       action=="batchUpdate" ? "Batch could not be saved. Check roller availability, valid start/turning-end times (by day 18), and verified SD recovery." :
-      "Action blocked. Check sensor recovery, temperature, motor position and storage in Component status.";
+      action=="recoveryInitialize" ? "Recovery rebuild blocked. Check RTC and saved batch dates, stable sensors and idle rollers. Existing valid snapshots must be recovered rather than replaced." :
+      "Action blocked. Check sensor recovery, temperature, active motors and storage in Component status.";
     sendJson("{\"ok\":false,\"message\":"+HatchJson::quote(message)+"}", 409); return;
   }
   sendJson(_controller.buildStatusJson(_network.statusText(), _network.ipAddress()));
@@ -346,6 +369,7 @@ void HatchWebServer::sendJson(const String& payload, int statusCode) {
 }
 
 void HatchWebServer::sendNotFound() {
+  Serial.printf("[HTTP] 404: %.160s\n", _server.uri().c_str());
   addCorsHeaders();
   _server.send(404, "text/plain", "Not found");
 }

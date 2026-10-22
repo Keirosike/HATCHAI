@@ -1,7 +1,6 @@
 #include "Dht22Sensor.h"
 
 namespace {
-constexpr uint32_t StartupDelayMs = 2000;
 static_assert(HatchConfig::SensorReadIntervalMs >= 2000,
   "DHT22 requires at least two seconds between measurements");
 }
@@ -24,13 +23,13 @@ SensorReading Dht22Sensor::read() {
     return reading;
   }
 
-  if (reading.timestampMs - _startedMs < StartupDelayMs) {
+  if (reading.timestampMs - _startedMs < HatchConfig::SensorStartupMs) {
     reading.error = "DHT22 warming up";
     return reading;
   }
 
   // Both values use one checksum-validated frame cached by the DHT library.
-  // Retry on the next scheduled sample, without blocking for a two-second wait.
+  // Failed attempts are retried after 2.1 seconds by the controller, without blocking.
   reading.temperatureC = _dht.readTemperature();
   reading.humidityPercent = _dht.readHumidity();
 

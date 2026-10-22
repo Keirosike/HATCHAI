@@ -46,6 +46,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const batchModalDescription = document.getElementById("batchModalDescription");
   const resetFormBtn = document.getElementById("resetFormBtn");
   const saveBatchBtn = document.getElementById("saveBatchBtn");
+  const recordActions=document.getElementById('batchRecordActions');
+  let recordActionPending=false;
+  let modalPreviousFocus=null;
 
   function saveBatches() {
     BatchStore.saveBatches(batches);
@@ -231,7 +234,8 @@ document.addEventListener("DOMContentLoaded", () => {
       slot.dataset.id = batch.id;
       slot.tabIndex = 0;
       slot.setAttribute("role", "button");
-      slot.setAttribute("aria-label", "Show " + batch.name + " on the dashboard");
+      slot.setAttribute("aria-label", "Open " + batch.label + " batch details");
+      slot.setAttribute('aria-haspopup','dialog');
       slot.innerHTML = `
         <div class="slot-top">
           <div>
@@ -248,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <span>Predicted: <strong>${escapeHtml(prediction.predictedHatchDateText)}</strong></span>
         </div>
         <div class="slot-actions">
-          <button class="btn btn-soft btn-small" type="button" data-action="slot-view" data-id="${batch.id}">View</button>
+          <button class="btn btn-primary btn-small" type="button" data-action="slot-done" data-id="${batch.id}">Done</button>
         </div>
       `;
       batchSlots.appendChild(slot);
@@ -334,6 +338,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("summaryBatch").textContent = "None";
       document.getElementById("summaryType").textContent = "None";
       document.getElementById("summaryCount").textContent = "0 eggs";
+      document.getElementById("summaryTurns").textContent = "No batch selected";
       document.getElementById("summaryLaid").textContent = "Not set";
       document.getElementById("summaryStarted").textContent = "Not set";
       document.getElementById("summaryCurrentDay").textContent = "Not set";
@@ -363,6 +368,14 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("summaryBatch").textContent = selectedBatch.name;
     document.getElementById("summaryType").textContent = selectedBatch.type;
     document.getElementById("summaryCount").textContent = (selectedBatch.count || "Unknown") + " eggs";
+    const startEpoch=Date.parse(`${selectedBatch.startDate}T${selectedBatch.startTime || '00:00:00'}Z`)/1000;
+    const turnRows=latestDeviceTime?.safety?.batches?.filter(row=>row.batchId===selectedBatch.id && row.startEpoch===startEpoch) || [];
+    const wanted=selectedBatch.roller===3 ? [1,2] : [1,2].includes(selectedBatch.roller) ? [selectedBatch.roller] : [];
+    document.getElementById("summaryTurns").textContent = wanted.length ? wanted.map(motor=>{
+      const row=turnRows.find(item=>item.motor===motor);
+      const value=row?.completedTurns;
+      return `${motor===1 ? 'Lower' : 'Upper'}: ${Number.isInteger(value) && value>=0 ? value : 'Unavailable'}`;
+    }).join(' · ') : 'No roller assigned';
     document.getElementById("summaryLaid").textContent = formatDate(selectedBatch.laidDate);
     document.getElementById("summaryStarted").textContent = formatDate(selectedBatch.startDate);
     document.getElementById("summaryCurrentDay").textContent = prediction.currentDayText;
@@ -382,9 +395,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function openModal(mode = "add") {
+    if(!batchModal.classList.contains('active')) modalPreviousFocus=document.activeElement;
     batchModal.classList.add("active");
     batchModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    recordActions.hidden=mode==='add';
+    document.getElementById('editBatchRecordBtn').hidden=mode!=='view';
+    (mode==='view' ? closeBatchModal : batchLabel).focus();
 
     if (mode === "add") {
       batchModalTitle.textContent = "Add Batch";
@@ -398,6 +415,8 @@ document.addEventListener("DOMContentLoaded", () => {
     batchModal.classList.remove("active");
     batchModal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
+    if(modalPreviousFocus?.isConnected && modalPreviousFocus.tagName!=='BODY') modalPreviousFocus.focus();
+    else openBatchModal.focus();
   }
 
   function setFormDisabled(disabled) {
@@ -684,7 +703,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setFormDisabled(true);
 
     batchModalTitle.textContent = "View Batch";
-    batchModalDescription.textContent = "Viewing this batch record. Click Edit in the table to update it.";
+    batchModalDescription.textContent = "Batch details. Choose Edit to update this record or Delete to remove it.";
     formStatus.textContent = "Viewing";
     formStatus.className = "status-pill status-ok";
 
@@ -723,17 +742,48 @@ document.addEventListener("DOMContentLoaded", () => {
       cancelText: "Cancel",
       confirmClass: "modal-btn-danger",
       onConfirm: async () => {
-        const deviceUpdated = await syncDeviceBatch(batch, false);
+        if(recordActionPending) return;
+        recordActionPending=true;
+        try { await window.HatchEspApi.syncBatch(batch,false); }
+        catch(error) { window.HatchToast.warning(`Batch kept: the ESP32 did not confirm turning was disabled. ${error.message}`);return; }
+        finally { recordActionPending=false; }
         batches = batches.filter(item => item.id !== id);
 
         saveBatches();
         batches = BatchStore.loadBatches();
         renderApp();
         refreshBatchPredictions();
-        if (deviceUpdated) window.HatchToast.success("Batch deleted; assigned turning disabled.");
+        if(batchId.value===id) closeModal();
+        window.HatchToast.success("Batch deleted; assigned turning disabled.");
       }
     });
   }
+
+  function completeBatch(id) {
+    const batch=batches.find(item=>item.id===id);
+    if(!batch || batch.status!=='Active' || recordActionPending) return;
+    window.HatchModal.open({title:'Mark batch done?',
+      message:`Mark "${batch.label}" as Completed and stop its assigned egg turning? The batch stays in your records.`,
+      confirmText:'Mark Done',cancelText:'Cancel',confirmClass:'modal-btn-primary',
+      onConfirm:async()=>{
+        if(recordActionPending) return;
+        recordActionPending=true;
+        const completed={...batch,status:'Completed',selected:false};
+        try {
+          await window.HatchEspApi.syncBatch(completed,false);
+          batches=batches.map(item=>item.id===id ? completed : item);
+          saveBatches();batches=BatchStore.loadBatches();renderApp();refreshBatchPredictions();
+          if(batchId.value===id) closeModal();
+          window.HatchToast.success('Batch completed; assigned turning disabled.');
+        } catch(error) {
+          window.HatchToast.warning(`Batch is still active: the ESP32 did not confirm completion. ${error.message}`);
+        } finally { recordActionPending=false; }
+      }
+    });
+  }
+
+  document.getElementById('editBatchRecordBtn').addEventListener('click',()=>editBatch(batchId.value));
+  document.getElementById('deleteBatchRecordBtn').addEventListener('click',()=>deleteBatch(batchId.value));
 
   batchTableBody.addEventListener("click", event => {
     const button = event.target.closest("button[data-action]");
@@ -775,8 +825,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      if (action === "slot-view" && id) {
-        viewBatch(id);
+      if (action === "slot-done" && id) {
+        completeBatch(id);
         return;
       }
     }
@@ -788,12 +838,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (selectBatch(slot.dataset.id)) {
+      viewBatch(slot.dataset.id);
       refreshBatchPredictions();
-      window.HatchToast.success("Dashboard batch updated.");
     }
   });
 
   batchSlots.addEventListener("keydown", event => {
+    if(event.target.closest('button')) return;
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
@@ -807,8 +858,8 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
 
     if (selectBatch(slot.dataset.id)) {
+      viewBatch(slot.dataset.id);
       refreshBatchPredictions();
-      window.HatchToast.success("Dashboard batch updated.");
     }
   });
 
@@ -826,6 +877,13 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("keydown", event => {
+    if(document.getElementById('confirmModal').classList.contains('active')) return;
+    if(event.key==='Tab' && batchModal.classList.contains('active')) {
+      const controls=[...batchModal.querySelectorAll('button,input,select,textarea,[tabindex]')].filter(el=>!el.disabled && el.tabIndex>=0 && el.offsetParent!==null);
+      const first=controls[0],last=controls[controls.length-1];
+      if(event.shiftKey && document.activeElement===first) {event.preventDefault();last?.focus();}
+      else if(!event.shiftKey && document.activeElement===last) {event.preventDefault();first?.focus();}
+    }
     if (event.key === "Escape" && batchModal.classList.contains("active")) {
       closeModal();
     }
@@ -873,4 +931,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   renderApp();
   refreshBatchPredictions();
+  let turnCountPending=false;
+  setInterval(async()=>{
+    if(document.hidden || turnCountPending || !window.HatchEspApi) return;
+    turnCountPending=true;
+    try { latestDeviceTime=await window.HatchEspApi.getData(); }
+    catch(error) { latestDeviceTime=null; }
+    finally { turnCountPending=false; renderSummary(); }
+  },5000);
 });

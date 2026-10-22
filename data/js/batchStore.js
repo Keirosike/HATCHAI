@@ -257,9 +257,9 @@ const HatchBatchStore = (() => {
   function getDeviceBatchDay(batch, data = {}) {
     const physical=data.safety?.batches?.find(p => p.batchId===batch.id);
     if (!batch.deviceBound && (!physical || data.recovery?.version!==1)) return null;
-    if (!physical || !data.recovery?.ready || !data.safety?.rtcTrusted ||
+    if (!physical || data.safety?.storageReady===false || !data.safety?.rtcTrusted ||
         !Number.isInteger(physical.incubationDay) || physical.incubationDay<1)
-      return {valid:false,day:0,rawDay:0,message:"Incubation day unavailable — verify RTC and recovered batch state"};
+      return {valid:false,day:0,rawDay:0,message:"Incubation day unavailable — verify RTC and the saved batch start time"};
     return {valid:true,day:Math.min(physical.incubationDay,CHICKEN_INCUBATION_DAYS),rawDay:physical.incubationDay,message:""};
   }
 

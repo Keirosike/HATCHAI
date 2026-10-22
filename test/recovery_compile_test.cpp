@@ -25,9 +25,11 @@ static_assert(!positionCheck(motor(Transaction::Completed),7,false,true),"Verifi
 static_assert(positionCheck(motor(Transaction::Completed),7,true,true),"Uncleared NVS intent is conservative after completion write");
 static_assert(positionCheck(motor(Transaction::Completed),8,false,true),"Older valid SD snapshot cannot erase a newer motor intent");
 static_assert(positionCheck(motor(Transaction::Idle,0,true),0,false,false),"Unassigned interrupted roller retains its position hold");
-static_assert(!journalAllows(1,1,false,false),"Uncertain lower roller blocks upper automatic turning too");
+static_assert(journalAllows(1,1,false,false),"A peer intent does not block an independent upper start");
 static_assert(journalAllows(1,0,true,false),"Only the live prepared intent may proceed after verified checkpoints");
-static_assert(!journalAllows(3,0,true,false),"Another uncertain motor prevents energizing either relay");
+static_assert(journalAllows(3,0,true,false) && journalAllows(3,1,false,true),"Both prepared/running intents remain independently valid");
+static_assert(!journalAllows(3,0,false,false) && !journalAllows(3,1,false,false),"Each unfinished own intent must still settle before restarting");
+static_assert(journalAllows(2,0,false,false) && journalAllows(1,0,false,true),"Clearing/finishing one intent cannot invalidate its live peer");
 static_assert(reconciledNext(boot,boot-7200)==boot+120,"Missed turns are skipped with a bounded resume delay");
 static_assert(reconciledNext(boot,boot+600)==boot+600,"Future RTC schedule remains unchanged");
 static_assert(crcText("123456789",9)==0xCBF43926UL,"Production CRC32 matches the standard test vector");
@@ -54,3 +56,33 @@ constexpr bool chosenCutoff() {
     !HatchTurning::ageAllowed(b.turningEnd,b.start,b.start,b.turningEnd);
 }
 static_assert(chosenCutoff(), "Custom earlier cutoff and exact end boundary block motion");
+
+static_assert(State().duration[0]==120 && State().duration[1]==120,"Fresh recovery state uses the 120-second default for both rollers");
+
+static_assert(HatchRecovery::checkpointResult(0,0,0,99999)==HatchRecovery::CommitResult::Pending,"No queued request is never a commit");
+static_assert(HatchRecovery::checkpointResult(8,7,6,10000)==HatchRecovery::CommitResult::Pending,"Old responses cannot complete a new request");
+static_assert(HatchRecovery::checkpointResult(8,8,6,10001)==HatchRecovery::CommitResult::Verified,"Matching durable acknowledgment wins");
+static_assert(HatchRecovery::checkpointResult(8,7,8,100)==HatchRecovery::CommitResult::Failed,"Matching write failure propagates immediately");
+static_assert(HatchRecovery::checkpointResult(8,7,6,10001)==HatchRecovery::CommitResult::TimedOut,"Only an unanswered request times out");
+static_assert(checkpointResult(8,7,6,uint32_t(3201)-uint32_t(3200))==CommitResult::Pending,"Next-update observation of a new startup request stays pending");
+static_assert(checkpointResult(8,7,6,uint32_t(3)-uint32_t(0xfffffffeUL))==CommitResult::Pending,"Checkpoint waiting remains valid across millis rollover");
+
+static_assert(HatchRecovery::dayFromStart(1792627200UL,1792627200UL)==1,"Start moment is Day 1 without any SD dependency");
+static_assert(HatchRecovery::dayFromStart(1792627200UL,1792713599UL)==1,"First day lasts a full 24 hours");
+static_assert(HatchRecovery::dayFromStart(1792627200UL,1792713600UL)==2,"Exact 24-hour boundary");
+static_assert(HatchRecovery::dayFromStart(0,1792627200UL)==0 && HatchRecovery::dayFromStart(1792627200UL,1792627199UL)==0,"Missing/future start never invents a day");
+
+constexpr bool interruptionSkipsInsteadOfReplaying() {
+  HatchRecovery::Motor m;
+  m.cycle=4; m.issued=1800000000; m.completed=1799990000;
+  m.lastSuccessfulCycle=3; m.positionHold=true; m.transaction=HatchRecovery::Transaction::InProgress;
+  HatchRecovery::skipInterrupted(m,5,1800000100,120,true);
+  if(m.positionHold || m.transaction!=HatchRecovery::Transaction::Interrupted || m.cycle!=5 ||
+      m.next!=1800007300 || m.completed!=1799990000 || m.lastSuccessfulCycle!=3) return false;
+  m.next=1800010000;
+  HatchRecovery::skipInterrupted(m,5,1800000100,120,true);
+  if(m.next!=1800010000) return false;
+  HatchRecovery::skipInterrupted(m,5,1800000100,120,false);
+  return m.cycle==0 && m.next==0 && !m.positionHold && m.transaction==HatchRecovery::Transaction::Idle;
+}
+static_assert(interruptionSkipsInsteadOfReplaying(),"Interrupted runs skip a full interval, preserve history, and never replay or fabricate completion");

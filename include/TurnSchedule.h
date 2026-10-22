@@ -10,7 +10,7 @@ constexpr bool due(uint32_t now, uint32_t start, uint32_t reserved, uint16_t min
   return ageAllowed(now, start, reserved) && minutes >= 30 && minutes <= 360 &&
     now - reserved >= minutes * 60UL;
 }
-constexpr bool idle(bool lowerOn, bool upperOn, uint32_t nowMs, uint32_t offMs) {
-  return !lowerOn && !upperOn && uint32_t(nowMs - offMs) >= HatchConfig::MotorGapMs;
+constexpr bool canStart(bool motorOn, uint32_t nowMs, uint32_t offMs) {
+  return !motorOn && uint32_t(nowMs - offMs) >= HatchConfig::MotorGapMs;
 }
 }

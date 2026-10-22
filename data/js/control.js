@@ -1,4 +1,4 @@
-const EXPECTED_RELAY_PINS = { bulb: 27, fan: 14, turner: 26, turner2: 25 };
+const EXPECTED_RELAY_PINS = { bulb: 27, fan: 14, turner: 25, turner2: 26 };
 const HatchControl = {
   elements: {}, devices: {}, safety: {}, recovery: {}, profiles: [], batches: [],
   firmwareReady: false, isSyncing: false, isLoading: false, pollTimer: null,
@@ -29,8 +29,8 @@ const HatchControl = {
   },
   bindEvents() {
     this.elements.autoModeSwitch?.addEventListener('change', () => this.syncControlSettings({ autoMode: this.elements.autoModeSwitch.checked }));
-    this.devices.bulb.switch?.addEventListener('change', () => this.syncControlSettings({ autoMode:false, bulbOn: this.devices.bulb.switch.checked }));
-    this.devices.fan.switch?.addEventListener('change',()=>this.syncControlSettings({autoMode:false,fanOn:this.devices.fan.switch.checked}));
+    this.devices.bulb.switch?.addEventListener('change', () => this.syncControlSettings({ bulbOn: this.devices.bulb.switch.checked }));
+    this.devices.fan.switch?.addEventListener('change',()=>this.syncControlSettings({fanOn:this.devices.fan.switch.checked}));
     [1, 2].forEach(motor => {
       const device = motor === 1 ? this.devices.turner : this.devices.turner2;
       device.switch?.addEventListener('change', () => device.switch.checked ?
@@ -84,21 +84,21 @@ const HatchControl = {
     });
     if (this.elements.autoModeSwitch) this.elements.autoModeSwitch.disabled = blocked;
     if (this.elements.saveSettingsBtn) this.elements.saveSettingsBtn.disabled = formBlocked;
-    if (this.devices.fan.switch) this.devices.fan.switch.disabled=blocked;
-    if (this.devices.bulb.switch) this.devices.bulb.switch.disabled=blocked;
+    if (this.devices.fan.switch) this.devices.fan.switch.disabled=blocked || auto;
+    if (this.devices.bulb.switch) this.devices.bulb.switch.disabled=blocked || auto;
     [1, 2].forEach(motor => {
       const d = motor === 1 ? this.devices.turner : this.devices.turner2;
       const p = this.profiles[motor-1] || {};
-      if (d.switch) d.switch.disabled=blocked;
+      if (d.switch) d.switch.disabled=blocked || auto;
       const run=this.elements[motor===1 ? 'turnEggBtn' : 'turnEgg2Btn'];
-      if(run) run.disabled=blocked || d.pulseActive || d.queued;
+      if(run) run.disabled=blocked || auto || d.pulseActive || d.queued;
       const stop = this.elements[motor === 1 ? 'stopEggBtn' : 'stopEgg2Btn'];
-      if (stop) stop.disabled = blocked || !(d.actualOn || d.queued);
+      if (stop) stop.disabled = blocked || auto || !(d.actualOn || d.queued);
       if (this.elements[`turnDuration${motor}`]) this.elements[`turnDuration${motor}`].disabled = formBlocked || d.pulseActive;
     });
     this.setText('controlStatusBadge', auto ? 'Auto Mode: ON' : 'Auto Mode: OFF');
     this.setText('lockBadge', !this.firmwareReady ? 'Waiting for updated firmware' : auto ? 'Automatic heating' : 'Manual controls active');
-    this.setText('autoDescription', auto ? 'Thermostat maintains the temperature. Each enabled batch follows its saved turning schedule.' :
+    this.setText('autoDescription', auto ? 'Automatic mode controls all outputs. Switch to Manual mode to use relay switches and roller Run/Stop.' :
       'Manual heating and timed motor runs remain protected by temperature, sensor and lockdown limits. Fan OFF requests are overridden during heating or faults.');
   },
   rollerName(motor) { return motor === 1 ? 'Lower roller' : 'Upper roller'; },
@@ -134,8 +134,10 @@ const HatchControl = {
       d.pulseActive = c[motor === 1 ? 'turnPulseActive' : 'turnPulse2Active'] === true;
       d.queued = c[motor === 1 ? 'turnQueued' : 'turn2Queued'] === true;
       d.remainingSeconds = c[motor === 1 ? 'turnPulseRemainingSeconds' : 'turnPulse2RemainingSeconds'] || 0;
+      const profile=this.profiles[motor-1] || {};
       if (d.text) d.text.textContent = d.pulseActive ? `Timed run: ${d.remainingSeconds} seconds remaining` :
-        d.queued ? 'Queued until the other motor stops' : this.profiles[motor-1]?.status || 'Turning disabled';
+        d.queued ? 'Start queued' : profile.canManualRun && !profile.canRun ?
+        `Manual ready; automatic: ${profile.status || 'not scheduled'}` : profile.status || 'Turning disabled';
     });
     const low=c.heaterOnBelow, high=c.heaterOffAbove;
     this.setText('bulbText', c.autoMode ?
@@ -143,6 +145,7 @@ const HatchControl = {
         `ON below ${low.toFixed(1)}°C; OFF above ${high.toFixed(1)}°C` : 'Thermostat limits unavailable' :
       'Manual · up to 5 seconds before relay ON');
     this.setText('fanText', c.autoMode ? 'Automatic circulation' : c.manualFanOn===false && c.fanOn ? 'Requested OFF; running for heating or sensor/temperature protection' : `Manual request; relay ${c.fanOn ? 'ON' : 'OFF'}`);
+    this.setText('heaterStatus', c.heaterStatus || 'Heating detail unavailable; update firmware');
     this.setText('bulbActualState', c.bulbOn === true ? 'ON' : 'OFF');
     this.setText('heaterDemandValue', c.autoMode === false ? 'Manual' :
       c.heaterControl === 'thermostat_hysteresis' ? 'Thermostat' : 'Unavailable');
@@ -153,8 +156,8 @@ const HatchControl = {
       this.elements.targetHumidity.value = `${c.targetHumidity ?? 55}%`;
       this.elements.turnInterval.value = String(c.turnIntervalMinutes || 120);
       this.elements.turnInterval2.value = String(c.turnInterval2Minutes || 120);
-      this.elements.turnDuration1.value = String(c.turnDurationSeconds || 15);
-      this.elements.turnDuration2.value = String(c.turnDuration2Seconds || 15);
+      this.elements.turnDuration1.value = String(c.turnDurationSeconds || 120);
+      this.elements.turnDuration2.value = String(c.turnDuration2Seconds || 120);
     }
     this.renderBatchLabels(); this.updateControlState();
   },
@@ -192,6 +195,10 @@ const HatchControl = {
     }
   },
   syncControlSettings(payload) {
+    if(this.elements.autoModeSwitch?.checked && ['bulbOn','fanOn','turnerOn','turner2On'].some(key=>key in payload)) {
+      this.setText('settingsStatus','Switch to Manual mode before controlling relays.');
+      this.loadControllerState(); return;
+    }
     // Immediate switches must not save unrelated edits that have not been reviewed.
     return this.perform(() => HatchEspApi.updateControl(payload), 'Control updated');
   },
@@ -203,11 +210,14 @@ const HatchControl = {
     if (!this.firmwareReady || this.isSyncing) return;
     try {
       const snapshot = this.collectSettingsReview(), p = snapshot.payload;
-      const details = [['Target temperature', `${p.targetTemperature}°C`], ['Target humidity', `${p.targetHumidity}%`]];
+      const details = [['Saved operating mode',p.autoMode ? 'Automatic' : 'Manual'],
+        ['Target temperature', `${p.targetTemperature}°C`], ['Target humidity', `${p.targetHumidity}%`]];
       [1,2].forEach(motor => details.push([this.motorLabel(motor),
         `${motor===1 ? p.turnDurationSeconds : p.turnDuration2Seconds} sec every ${motor===1 ? p.turnIntervalMinutes : p.turnInterval2Minutes} min`]));
-      this.confirmAction({ title: 'Save these settings?', message: 'Check the targets and roller timing before confirming.',
-        details, notice: 'Choose a roller for each batch on the Batch page. Saved durations also apply to automatic turning.',
+      details.push(['After power returns',p.autoMode ? 'Restore Automatic mode; heating waits for stable sensor readings.' :
+        'Restore Manual mode; the bulb starts OFF.']);
+      this.confirmAction({ title: 'Save Control Settings?', message: 'Review the mode, targets and roller timing before saving.',
+        details, notice: 'Mode changes are saved immediately. Confirm saves these targets and timings to device memory and queues an SD checkpoint. Automatic turning needs valid RTC/SD recovery; unfinished turns are skipped automatically after recovery.',
         confirmText: 'Confirm & save', cancelText: 'Keep editing', confirmClass: 'modal-btn-primary',
         onConfirm: () => this.saveSettings(snapshot) });
     } catch (error) {
@@ -218,16 +228,18 @@ const HatchControl = {
     return this.perform(async () => {
       if (snapshot.bindings.some((id,i)=>id!==(this.profiles[i]?.batchId || '')))
         throw new Error('A roller batch changed while reviewing. Review the settings again.');
-      const { autoMode, bulbOn, ...settings } = snapshot.payload;
+      if(snapshot.payload.autoMode!==this.elements.autoModeSwitch.checked)
+        throw new Error('The operating mode changed while reviewing. Review the settings again.');
+      const { autoMode, bulbOn, fanOn, turnerOn, turner2On, ...settings } = snapshot.payload;
       const result=await HatchEspApi.updateControl(settings);
       this.applyRemoteState(result, { updateFields: true }); return result;
-    }, 'Settings saved');
+    }, 'Settings saved to device memory; SD save queued');
   },
   turnEggsNow(motor, seconds = this.manualDuration(motor)) {
-    if (seconds === null) return;
+    if (seconds === null || this.elements.autoModeSwitch?.checked) return;
     return this.perform(() => HatchEspApi.turnEggsNow(motor, seconds), `${this.motorLabel(motor)} timed run requested`);
   },
-  stopEggs(motor) { return this.perform(() => HatchEspApi.stopEggs(motor), 'Turner stop confirmed'); },
+  stopEggs(motor) { if(this.elements.autoModeSwitch?.checked) return; return this.perform(() => HatchEspApi.stopEggs(motor), 'Turner stop confirmed'); },
   safetyAction(action, payload) { return this.perform(() => HatchEspApi.safetyAction(action, payload), 'Device safety settings updated'); }
 };
 document.addEventListener('DOMContentLoaded', () => HatchControl.init());

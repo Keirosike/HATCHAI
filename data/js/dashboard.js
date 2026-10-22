@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let pinnedTooltip = false;
   let dashboardPredictionRequestId = 0;
   let latestDashboardData = null;
+  let lastValidEnvironment = null;
   let dashboardPredictionContext = "";
   let dashboardBatchOptions = "";
   let lastChartRender = "";
@@ -585,8 +586,16 @@ document.addEventListener("DOMContentLoaded", function () {
       return value !== null && Number.isFinite(number) ? Math.round(number) + "%" : "--";
     };
 
-    setText("tempValue", formatTemperature(data.temperature));
-    setText("humidityValue", formatHumidity(data.humidity));
+    const sensorFresh = data.sensorValid !== false && data.temperature != null && data.humidity != null &&
+      Number.isFinite(Number(data.temperature)) && Number.isFinite(Number(data.humidity));
+    if (sensorFresh) lastValidEnvironment = { temperature: data.temperature, humidity: data.humidity };
+    const shown = sensorFresh ? data : lastValidEnvironment;
+    setText("tempValue", formatTemperature(shown?.temperature ?? null));
+    setText("humidityValue", formatHumidity(shown?.humidity ?? null));
+    const note = sensorFresh ? (data.sensorError ? 'Last valid reading — sensor retrying' : '') :
+      lastValidEnvironment ? 'Last valid reading — sensor unavailable' : 'Waiting for a valid sensor reading';
+    setText("temperatureReadingNote", note || 'Shared incubator temperature');
+    setText("humidityReadingNote", note || 'Shared incubator humidity');
     setText("relayValue", data.relayStatus || "Heating OFF");
     setText("relayBadge", data.relayBadge || "Bulb Idle");
     setText("motorValue", data.motorStatus || "Idle");
@@ -789,6 +798,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
       renderCharts();
     } catch (error) {
+      setText("temperatureReadingNote", "Last reading — connection lost");
+      setText("humidityReadingNote", "Last reading — connection lost");
       setText("wifiStatus", "Unavailable");
       setText("safetyBanner", "Connection lost. Current temperature safety status is unavailable.");
       const safetyBanner = document.getElementById("safetyBanner");

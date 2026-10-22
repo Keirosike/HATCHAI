@@ -5,9 +5,9 @@
 
 constexpr uint32_t Interval = HatchConfig::DefaultTurnIntervalMinutes * 60000UL;
 constexpr uint32_t Pulse = HatchConfig::TurnerPulseMs;
-static_assert(Interval == 7200000UL && Pulse == 15000UL, "Requested timing defaults");
+static_assert(Interval == 7200000UL && Pulse == 120000UL, "Requested timing defaults");
 static_assert(HatchConfig::FanRelayPin == 14 && HatchConfig::Bulb1RelayPin == 27 &&
-              HatchConfig::TurnerRelayPin == 26 && HatchConfig::Turner2RelayPin == 25,
+              HatchConfig::TurnerRelayPin == 25 && HatchConfig::Turner2RelayPin == 26,
               "Requested IN1-IN4 mapping");
 static_assert(!HatchConfig::RelayActiveHigh, "Preserve active-low relay polarity");
 constexpr uint32_t Boot = 1000;
@@ -18,9 +18,9 @@ static_assert(Idle.isDue(Boot + Interval, Boot, Interval), "Turn at two hours");
 
 constexpr TurnCycle Motor1(true, true, 8000000, 8000000);
 constexpr TurnCycle Motor2(true, true, 8007000, 8007000);
-static_assert(!Motor1.pulseExpired(8014999, Pulse), "Keep running before 15s");
-static_assert(Motor1.pulseExpired(8015000, Pulse), "Stop exactly at 15s");
-static_assert(!Motor2.pulseExpired(8015000, Pulse), "Second motor keeps its own timer");
+static_assert(!Motor1.pulseExpired(8119999, Pulse), "Keep running before 120s");
+static_assert(Motor1.pulseExpired(8120000, Pulse), "Stop exactly at 120s");
+static_assert(!Motor2.pulseExpired(8120000, Pulse), "Second motor keeps its own timer");
 static_assert(!Motor1.isDue(8000000 + Interval, Boot, Interval), "No overlapping pulse");
 
 constexpr TurnCycle Finished(true, false, 8000000, 8000000);
@@ -53,3 +53,13 @@ static_assert(WrappedManual.pulseRemainingMs(uint32_t(WrapStart + 7000)) == 0, "
 static_assert(Idle.pulseRemainingMs(1000) == 0, "Inactive motor has no remaining time");
 static_assert(HatchConfig::MinManualTurnSeconds == 1 && HatchConfig::MaxManualTurnSeconds == 600,
               "Manual duration bounds");
+
+static_assert(HatchConfig::legacyRollerPins(26,25), "Earlier checkpoint pin layout is recognized");
+static_assert(HatchConfig::currentRollerPins(25,26), "Corrected physical layout is recognized");
+static_assert(!HatchConfig::legacyRollerPins(25,25) && !HatchConfig::currentRollerPins(26,26), "Duplicate relay pins stay invalid");
+
+constexpr TurnCycle LowerOverlap(true,true,1000,1000,120000);
+constexpr TurnCycle UpperOverlap(true,true,31000,31000,120000);
+static_assert(LowerOverlap.pulseExpired(121000,120000) && UpperOverlap.pulseRemainingMs(121000)==30000,
+  "Lower deadline does not shorten upper's independently started 120-second run");
+static_assert(UpperOverlap.pulseRemainingMs(151000)==0,"Upper keeps its own exact deadline");

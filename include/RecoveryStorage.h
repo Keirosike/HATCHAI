@@ -11,8 +11,8 @@ public:
   struct Pair { HatchRecovery::State state[2]; bool valid[2]={false,false}; bool exists[2]={false,false}; };
   struct Status {
     bool loaded=false,available=false,logging=false;
-    uint32_t ack=0,sequence=0,lastSave=0,errors=0,dropped=0,heartbeat=0;
-    int8_t slot=-1; char error[96]={};
+    uint32_t ack=0,failedTicket=0,sequence=0,lastSave=0,errors=0,dropped=0,heartbeat=0;
+    int8_t slot=-1; char error[96]={},checkpointError[96]={};
   };
   void begin();
   bool reload();

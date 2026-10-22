@@ -1,4 +1,5 @@
 #pragma once
+#include "SensorSampling.h"
 
 #include <Arduino.h>
 #include "Config.h"
@@ -16,6 +17,7 @@
 #include "RuntimeWatchdog.h"
 #include "TurnSchedule.h"
 #include "RecoveryGuard.h"
+#include "BatchTurnCounter.h"
 
 class IncubatorController {
 public:
@@ -36,6 +38,7 @@ public:
   void setNetworkStatus(const String& status);
   bool applySettings(const ControlSettings& settings);
   bool triggerTurnCycle(uint8_t motor = 0, uint32_t pulseMs = HatchConfig::TurnerPulseMs, bool manual = false);
+  String manualTurnBlockedReason(uint8_t motor) const;
   void stopTurnCycle(uint8_t motor = 0); // 0 = both, 1 = IN3, 2 = IN4
   void completeLoop();
   bool acknowledgeAlarm();
@@ -50,7 +53,7 @@ public:
     const String& status = "", uint8_t roller = 0, const String& turningEnd = "");
   bool retryRecovery();
   bool initializeRecovery(bool automatic = false);
-  bool acknowledgePosition(uint8_t motor);
+
   bool updateBatchMetadata(const String& id,const String& label,const String& name,uint16_t eggs);
 
   ControlSettings settings() const;
@@ -58,6 +61,7 @@ public:
   String buildPredictionJson(const String& batchId, int incubationDay) const;
 
 private:
+  BatchTurnCounter _batchTurnCounter;
   bool hasElapsed(uint32_t nowMs, uint32_t previousMs, uint32_t intervalMs) const;
   void readSensorIfDue(uint32_t nowMs);
   void updateOutputs(uint32_t nowMs);
@@ -74,14 +78,18 @@ private:
   bool systemReady() const;
   bool motorAllowed(uint8_t index, uint32_t nowMs) const;
   bool manualMotorAllowed(uint8_t index, uint32_t nowMs) const;
-  bool startManualMotor(uint8_t index, uint32_t pulseMs);
+  const char* manualMotorHold(uint8_t index, uint32_t nowMs) const;
+  bool startManualMotors(uint8_t mask);
   void finishManualMotor(uint8_t index);
   bool startMotor(uint8_t index, uint32_t pulseMs);
   String safetyMessage() const;
+  String heaterStatus() const;
   String turnState(uint8_t index) const;
   String buildSafetyJson() const;
   String buildRecoveryJson() const;
   void updateRecovery(uint32_t nowMs);
+  void recoverInterruptedRollers();
+  bool canRebuildRecovery() const;
   void restoreSnapshot(const HatchRecovery::State& state);
   HatchRecovery::State snapshot() const;
   enum class CommitPurpose : uint8_t { Normal, Startup, Initialize, Pending, Start, Finish, Position };
@@ -152,14 +160,14 @@ private:
   bool _manualMotor[2] = {false, false};
   bool _queuedManual[2] = {false, false};
   uint32_t _queuedPulseMs[2] = {0, 0};
-  uint32_t _motorOffMs = 0;
+  uint32_t _motorOffMs[2] = {0, 0};
   uint8_t _preferredMotor = 0;
   EggTurningMetrics _turningMetrics[2];
   TurnCycle _turnCycles[2];
   SensorReading _currentReading;
-  bool _hasReadSensor = false;
+  SensorSampling _sensorSampling;
+  uint8_t _sensorFailureCount = 0;
   uint32_t _startedMs = 0;
-  uint32_t _lastSensorReadMs = 0;
   uint32_t _lastDisplayRefreshMs = 0;
   String _networkStatus = "Offline";
   String _turnMetricsDateKey[2];

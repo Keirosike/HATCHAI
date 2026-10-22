@@ -67,5 +67,24 @@ static_assert(!HatchTurning::due(Start+7201, Start, Start+7200,120), "Persisted 
 static_assert(!HatchTurning::ageAllowed(Start+17UL*86400,Start,Start), "Lockdown at the start of chicken day 18");
 static_assert(!HatchTurning::ageAllowed(Start-1,Start,Start) &&
   !HatchTurning::due(0,Start,Start,120), "No uptime fallback / backward date turning");
-static_assert(!HatchTurning::idle(true,false,5000,0) && !HatchTurning::idle(false,true,5000,0) &&
-  !HatchTurning::idle(false,false,999,0) && HatchTurning::idle(false,false,1000,0), "No concurrent motors, one-second gap");
+static_assert(!HatchTurning::canStart(true,5000,0) && !HatchTurning::canStart(false,999,0) &&
+  HatchTurning::canStart(false,1000,0), "Per-roller restart gap and no restart of an already active motor");
+static_assert(HatchTurning::canStart(false,5000,4000) && !HatchTurning::canStart(false,5000,4500),
+  "Each roller uses its own OFF timestamp");
+
+constexpr bool qualifyOnlyOnRecovery() {
+  ThermalSafety s;
+  s.sample(0,true,36); s.sample(5000,true,36.8f); s.sample(10000,true,37.4f);
+  if (s.ready(10000)) return false; // startup still needs stable frames
+  s.sample(15000,true,37.4f); s.sample(20000,true,37.4f);
+  if (!s.ready(20000)) return false;
+  s.sample(25000,true,36.7f);
+  if (!s.ready(25000)) return false;
+  s.update(45001,0);
+  if (s.ready(45001)) return false;
+  s.sample(46000,true,37.1f); s.sample(51000,true,37.1f);
+  if (s.ready(51000)) return false;
+  s.sample(56000,true,37.1f);
+  return s.ready(56000);
+}
+static_assert(qualifyOnlyOnRecovery(), "Startup stability remains mandatory, stale recovery requalifies");

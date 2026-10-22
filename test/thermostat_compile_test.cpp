@@ -13,7 +13,8 @@ constexpr bool boundaries() {
       !h.update(8000,true,high,37.5f)) return false;
   if (h.update(8001,true,high+0.1f,37.5f)) return false; // OFF immediately
   if (h.update(13001,true,high,37.5f) || h.update(13002,true,low,37.5f)) return false;
-  return h.update(13003,true,low-0.1f,37.5f);
+  if (h.update(38000,true,low-0.1f,37.5f)) return false;
+  return h.update(38001,true,low-0.1f,37.5f);
 }
 static_assert(boundaries(), "Strict thresholds, equality/inside-band retention, minimum OFF guard");
 
@@ -58,8 +59,41 @@ constexpr bool sensorRecovery() {
   s.update(30001,0);
   if (h.update(30001,s.heatAllowed(30001),s.lastTemperature,37.5f)) return false;
   s.sample(35000,true,37); s.sample(40000,true,37); s.sample(45000,true,37);
-  if (!h.update(45000,s.heatAllowed(45000),s.lastTemperature,37.5f)) return false;
-  s.sample(50000,true,39);
-  return !h.update(50000,s.heatAllowed(50000),s.lastTemperature,37.5f) && s.critical;
+  if (h.update(45000,s.heatAllowed(45000),s.lastTemperature,37.5f)) return false;
+  s.sample(60001,true,37);
+  if (!h.update(60001,s.heatAllowed(60001),s.lastTemperature,37.5f)) return false;
+  s.sample(65000,true,39);
+  return !h.update(65000,s.heatAllowed(65000),s.lastTemperature,37.5f) && s.critical;
 }
 static_assert(sensorRecovery(), "Transient tolerance, stale OFF, stable automatic recovery, raw overheat OFF");
+
+constexpr bool rapidCyclingAndReset() {
+  RelayThermostat h; h.reset(0);
+  if (!h.update(5000,true,37,37.5f)) return false;
+  if (h.update(10000,true,37.9f,37.5f)) return false;
+  for (uint32_t t=15000;t<40000;t+=5000)
+    if (h.update(t,true,37,37.5f)) return false;
+  if (!h.update(40000,true,37,37.5f)) return false;
+  h.reset(40001); // sensor protection must keep the restart delay
+  if (h.update(70000,true,37,37.5f)) return false;
+  if (!h.update(70001,true,37,37.5f)) return false;
+  return !h.update(70002,false,39,37.5f);
+}
+static_assert(rapidCyclingAndReset(), "30-second automatic restart delay and immediate safety OFF");
+
+constexpr bool qualifiedCoolingFilter() {
+  ThermalSafety s; RelayThermostat h; h.reset(0);
+  s.sample(0,true,37.5f); s.sample(5000,true,37.5f); s.sample(10000,true,37.5f);
+  if (h.update(10000,s.heatAllowed(10000),s.controlTemperature(),37.5f)) return false;
+  s.sample(15000,true,36.9f); // valid temperature change, not a disconnected sensor
+  if (!s.ready(15000) || h.update(15000,s.heatAllowed(15000),s.controlTemperature(),37.5f)) return false;
+  s.sample(20000,true,36.9f);
+  if (!h.update(20000,s.heatAllowed(20000),s.controlTemperature(),37.5f)) return false;
+  s.sample(25000,true,37.9f); // raw hot value must bypass downward smoothing
+  if (!s.ready(25000) || s.controlTemperature()!=37.9f || h.update(25000,s.heatAllowed(25000),s.controlTemperature(),37.5f)) return false;
+  s.sample(30000,false,0);
+  if (!s.ready(30000) || s.sampleMs!=25000) return false;
+  s.sample(35000,true,39);
+  return s.critical && !s.heatAllowed(35000);
+}
+static_assert(qualifiedCoolingFilter(), "Cold dip filtering, valid steps retain qualification, raw hot/critical OFF");

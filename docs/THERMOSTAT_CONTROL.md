@@ -16,13 +16,17 @@ while the temperature remains below the lower limit or while an ON state is
 retained in the band. Actual temperature can overshoot due to retained bulb
 heat and sensor placement; no physical stability improvement is claimed.
 
-A five-second minimum OFF time applies before any re-energizing. Thermostat
+A five-second guard applies to startup/manual requests; automatic restarting
+after a live ON-to-OFF transition waits at least thirty seconds. Thermostat
 OFF, manual OFF and safety OFF occur immediately. Startup, mode/target changes
 and sensor recovery reset heating to OFF. A fresh start inside the band stays
 OFF until the measured temperature falls below the lower threshold.
 
-Thermostat decisions use raw calibrated temperature rather than PID's EMA.
-The existing three-stable-sample qualification, twenty-second freshness limit,
+Thermostat decisions use the greater of raw calibrated temperature and the
+existing EMA (alpha 0.35). A downward dip is smoothed; an upward reading acts
+immediately. This remains hysteresis control, with no PID duty cycle.
+Three stable samples qualify startup/recovery. After qualification, valid
+temperature steps do not restart it. The twenty-second freshness limit,
 raw overtemperature inhibit above 38 C, 38.5 C warning and latched 39 C critical
 protection remain. The independent 38 C inhibit can stop heat before the upper
 thermostat threshold when using a higher target. Manual control and the
@@ -87,3 +91,5 @@ JavaScript 136,738, SVG 1,376, WebP 76,900 (largest 39,032), fonts 42,392.
 Total 366,307 bytes. JavaScript exceeds the 80 KB recommendation and the total
 exceeds 350 KB; HTML, CSS and individual images meet their recommendations.
 No dependencies or faster polling were introduced. SPIFFS packaging passed.
+
+Automatic restart protection: after an energized bulb switches OFF, automatic heating now waits at least 30 seconds before restarting. Startup and manual requests retain the five-second guard. Sensor/temperature faults and manual OFF still act immediately; there is no forced minimum ON time. The 0.3 C hysteresis is unchanged. This limits rapid restarting but does not establish the cause of noisy readings or electrical relay faults. Verify chamber temperature on the actual device after deployment.

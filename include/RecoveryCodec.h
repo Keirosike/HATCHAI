@@ -71,6 +71,9 @@ public:
        !take(document["startup"],s.startup) || !take(document["restartReason"],s.resetReason) ||
        !take(document["flags"],s.flags)) return false;
     JsonObjectConst c=document["config"];
+    if(!c["lowerPin"].is<uint8_t>() || !c["upperPin"].is<uint8_t>()) return false;
+    const uint8_t lowerPin=c["lowerPin"].as<uint8_t>(),upperPin=c["upperPin"].as<uint8_t>();
+    const bool oldRollerMap=HatchConfig::legacyRollerPins(lowerPin,upperPin);
     if(!take(c["temperatureMilliC"],s.temperatureMilli) || !take(c["humidityMilliPercent"],s.humidityMilli) ||
        !take(c["offsetMilliC"],s.offsetMilli) || !take(c["automatic"],s.automatic) ||
        !take(c["manualHeatRequested"],s.manualHeatRequested) || (version==1 ? c["fanAlwaysOn"]!=true :
@@ -83,7 +86,7 @@ public:
        !HatchRecovery::sensorTimingCompatible(c["sensorIntervalMs"].as<uint32_t>(),c["sensorStaleMs"].as<uint32_t>()) ||
        c["lowWarmupMs"]!=HatchConfig::LowWarningWarmupMs || c["lowDelayMs"]!=HatchConfig::LowWarningDelayMs ||
        c["fanPin"]!=HatchConfig::FanRelayPin || c["heaterPin"]!=HatchConfig::Bulb1RelayPin ||
-       c["lowerPin"]!=HatchConfig::TurnerRelayPin || c["upperPin"]!=HatchConfig::Turner2RelayPin || c["relayActiveHigh"]!=HatchConfig::RelayActiveHigh ||
+       (!oldRollerMap && !HatchConfig::currentRollerPins(lowerPin,upperPin)) || c["relayActiveHigh"]!=HatchConfig::RelayActiveHigh ||
        c["lockdownAfterSeconds"]!=(version==1 ? 18UL*86400 : HatchConfig::LockdownAfterSeconds) ||
        c["sensorLogIntervalMs"]!=HatchConfig::SensorLogIntervalMs ||
        c["checkpointIntervalMs"]!=HatchConfig::RecoveryCheckpointIntervalMs || c["pidAccumulatorRestored"]!=false) return false;
@@ -116,6 +119,7 @@ public:
        !take(d["lowAlarm"],s.lowAlarm) || !take(d["pidOutputMilliPercent"],s.pidOutputMilli) ||
        !take(d["heaterOn"],s.heaterOn) || !take(d["lowerOn"],s.lowerOn) || !take(d["upperOn"],s.upperOn) ||
        !HatchRecovery::valid(s)) return false;
+    if(oldRollerMap) s.motors[0].positionHold=s.motors[1].positionHold=true;
     state=s; return true;
   }
   // Human-readable configuration mirror; snapshots remain authoritative.
