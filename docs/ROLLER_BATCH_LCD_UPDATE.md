@@ -149,3 +149,11 @@ The dashboard retains its last valid temperature/humidity pair during invalid se
 Roller Verify is now a compact button beside the batch heading (accessible name identifies the roller). Its hidden state occupies no layout space; the existing conditional position-hold behavior and confirmation are unchanged.
 
 Latest UI preference: Control roller cards no longer contain Verify buttons or their heading wrappers/styles. Interrupted-position confirmation is available only as a conditional maintenance action in Settings > Component status. Firmware and missing-value duration defaults remain 120 seconds; explicit saved calibrations are retained. Removing the Control button does not bypass the SD recovery, clock, cutoff or sensor checks.
+# Incubation day beside each LCD batch
+
+Rows 2 and 3 now append the RTC-based incubation day: `Upper: BATCH-001 D2`
+and `Lower: BATCH-002 D21`. Long labels are shortened to reserve space for the
+day within 20 columns. Unknown RTC/future or invalid start shows `D--`, never a
+guessed day. Unassigned rows remain `Upper: No batch` / `Lower: No batch`.
+Temperature/RH on row 1 and estimates/warnings on row 4 retain their behavior.
+Firmware upload alone applies this display change; no SPIFFS changes are needed.
