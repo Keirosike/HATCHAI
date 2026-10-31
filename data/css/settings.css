@@ -156,15 +156,157 @@
   white-space: nowrap;
 }
 
-.wifi-status-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.wifi-current {
+  display: flex;
+  align-items: center;
   gap: 14px;
-  margin-top: 14px;
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
 }
 
-.wifi-connect-form {
-  margin-top: 16px;
+.wifi-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--orange);
+}
+
+.wifi-current-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.wifi-current-name h3,
+.wifi-details dd,
+.wifi-network-list button span {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.wifi-current-name p,
+.wifi-details dt {
+  color: var(--gray);
+  font-size: 13px;
+}
+
+.wifi-current-name h3 {
+  margin: 4px 0 8px;
+  font-size: 18px;
+}
+
+.wifi-info-button {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  max-width: 44px;
+  padding: 10px;
+  flex-shrink: 0;
+}
+
+.wifi-details {
+  padding: 16px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-soft);
+}
+
+.wifi-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.wifi-details dd {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.wifi-network-list button.selected {
+  border-color: var(--orange);
+  background: var(--bg-soft);
+}
+
+.wifi-network-list button {
+  min-height: 48px;
+}
+
+.wifi-lock {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.wifi-details .btn,
+#refreshWifiBtn {
+  min-height: 44px;
+}
+
+.wifi-network-list button span:first-child {
+  min-width: 0;
+}
+
+.wifi-network-list button span:last-child {
+  flex-shrink: 0;
+  max-width: 45%;
+  text-align: right;
+}
+
+.settings-page button:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+}
+
+.settings-page button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.wifi-join-dialog {
+  width: min(92vw, 400px);
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--black);
+  background: var(--white);
+}
+
+.wifi-join-dialog::backdrop {
+  background: rgba(17, 24, 39, 0.45);
+}
+
+.wifi-join-dialog .field-group {
+  margin-top: 18px;
+}
+
+.wifi-join-dialog .input-box {
+  font-size: 16px;
+}
+
+.wifi-join-dialog .btn {
+  min-height: 44px;
+}
+
+.wifi-join-dialog :is(button, input):focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+}
+
+#wifiJoinSsid {
+  overflow-wrap: anywhere;
+}
+
+.wifi-join-error {
+  min-height: 20px;
+  color: #B91C1C;
+  font-size: 14px;
 }
 
 .wifi-password-wrap {
@@ -183,25 +325,6 @@
   min-width: 62px;
   padding: 8px 11px;
   transform: translateY(-50%);
-}
-
-.wifi-info-box {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 14px;
-  background: var(--card-bg);
-}
-
-.wifi-info-box p {
-  font-size: 13px;
-  color: var(--gray);
-  margin-bottom: 8px;
-}
-
-.wifi-info-box h3 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--black);
 }
 
 .wifi-card-status {
@@ -238,7 +361,7 @@
     grid-column: span 1;
   }
 
-  .wifi-status-row {
+  .wifi-details-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -266,3 +389,14 @@
     width: auto;
   }
 }
+
+#componentsDialog { border: 1px solid var(--border); border-radius: 16px; padding: 20px; width: min(620px,calc(100% - 24px)); max-height: 85dvh; overflow-y: auto; margin: auto; color: var(--black); }
+#componentsDialog::backdrop { background: rgb(17 24 39 / 40%); }
+.component-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.component-heading h2 { font-size: 20px; }
+.component-list { margin: 12px 0; }
+.component-list div { padding: 10px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.component-list dt { font-weight: 600; }
+.component-list dd { margin-top: 4px; color: var(--gray); font-size: 14px; }
+.component-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.component-actions:empty { display: none; }

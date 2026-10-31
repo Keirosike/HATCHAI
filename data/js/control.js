@@ -1,353 +1,245 @@
-const CONTROL_DEVICES = {
-  bulb: {
-    switchId: "bulbSwitch",
-    cardId: "bulbCard",
-    textId: "bulbText",
-    summaryId: "summaryBulb",
-    label: "Heating bulbs",
-    autoText: "Both bulbs are auto-controlled by temperature target",
-    onText: "Heating bulbs are ON",
-    offText: "Heating bulbs are OFF"
-  },
-  fan: {
-    switchId: "fanSwitch",
-    cardId: "fanCard",
-    textId: "fanText",
-    summaryId: "summaryFan",
-    label: "Fan",
-    autoText: "Auto-controlled for air circulation",
-    onText: "Fan is ON",
-    offText: "Fan is OFF"
-  },
-  turner: {
-    switchId: "turnerSwitch",
-    cardId: "turnerCard",
-    textId: "turnerText",
-    summaryId: "summaryTurner",
-    label: "Egg turner",
-    autoText: "Auto-controlled by turning interval",
-    onText: "Egg turner is ON",
-    offText: "Egg turner is OFF"
-  }
-};
-
+const EXPECTED_RELAY_PINS = { bulb: 27, fan: 14, turner: 25, turner2: 26 };
 const HatchControl = {
-  degreeC: "\u00B0C",
-  elements: {},
-  devices: {},
-  isSyncing: false,
-  pollTimer: null,
-
+  elements: {}, devices: {}, safety: {}, recovery: {}, profiles: [], batches: [],
+  firmwareReady: false, isSyncing: false, isLoading: false, pollTimer: null,
   init() {
-    this.cacheElements();
-    this.bindEvents();
-    this.updateControlState();
+    const ids = ['autoModeSwitch', 'turnEggBtn', 'turnEgg2Btn', 'stopEggBtn', 'stopEgg2Btn',
+      'turnDuration1', 'turnDuration2', 'targetTemp', 'targetHumidity', 'turnInterval', 'turnInterval2'];
+    ids.forEach(id => { this.elements[id] = HatchApp.get(id); });
+    this.elements.saveSettingsBtn = HatchApp.get('saveControlSettingsBtn');
+    ['bulb', 'fan', 'turner', 'turner2'].forEach(key => {
+      this.devices[key] = { switch: HatchApp.get(`${key}Switch`), text: HatchApp.get(`${key}Text`),
+        actualOn: false };
+    });
+    this.bindEvents(); this.updateControlState();
     this.loadControllerState({ updateFields: true });
-
-    this.pollTimer = setInterval(() => {
-      this.loadControllerState();
-    }, 5000);
+    document.addEventListener('visibilitychange', () => {
+      clearTimeout(this.pollTimer);
+      if (!document.hidden) this.loadControllerState();
+    });
   },
-
-  cacheElements() {
-    this.elements = {
-      autoModeSwitch: HatchApp.get("autoModeSwitch"),
-      turnEggBtn: HatchApp.get("turnEggBtn"),
-      saveSettingsBtn: HatchApp.get("saveControlSettingsBtn"),
-      controlStatusBadge: HatchApp.get("controlStatusBadge"),
-      autoStateText: HatchApp.get("autoStateText"),
-      autoDescription: HatchApp.get("autoDescription"),
-      lockBadge: HatchApp.get("lockBadge"),
-      summaryAuto: HatchApp.get("summaryAuto"),
-      summaryLock: HatchApp.get("summaryLock"),
-      lastTurnValue: HatchApp.get("lastTurnValue"),
-      settingsStatus: HatchApp.get("settingsStatus"),
-      targetTemp: HatchApp.get("targetTemp"),
-      targetHumidity: HatchApp.get("targetHumidity"),
-      turnInterval: HatchApp.get("turnInterval")
-    };
-
-    this.devices = Object.fromEntries(
-      Object.entries(CONTROL_DEVICES).map(([key, config]) => [
-        key,
-        {
-          ...config,
-          switch: HatchApp.get(config.switchId),
-          card: HatchApp.get(config.cardId),
-          text: HatchApp.get(config.textId),
-          summary: HatchApp.get(config.summaryId)
-        }
-      ])
-    );
+  setText(id, text) {
+    const node = HatchApp.get(id);
+    if (node && node.textContent !== String(text)) node.textContent = String(text);
   },
-
   confirmAction(options) {
-    if (window.HatchModal?.open && HatchModal.open(options)) {
-      return;
-    }
-
-    const fallbackConfirm = confirm(options.message || "Are you sure?");
-
-    if (fallbackConfirm && typeof options.onConfirm === "function") {
-      options.onConfirm();
-    }
+    if (window.HatchModal?.open && HatchModal.open(options)) return;
+    const review = (options.details || []).map(([label, value]) => `${label}: ${value}`).join('\n');
+    if (confirm([options.message, review, options.notice].filter(Boolean).join('\n\n'))) options.onConfirm();
   },
-
   bindEvents() {
-    this.elements.autoModeSwitch?.addEventListener("click", event => {
-      if (this.elements.autoModeSwitch.checked) {
-        this.updateControlState();
-        this.syncControlSettings("Auto mode enabled.");
-        return;
-      }
-
-      this.confirmSwitchChange(event, {
-        title: "Turn auto mode off?",
-        message: "Warning: Auto mode will stop controlling the bulb, fan, and egg turner. Manual controls will stay active until auto mode is turned back on.",
-        confirmText: "Turn auto off",
-        confirmClass: "modal-btn-danger",
-        onConfirm: () => {
-          this.updateControlState();
-          this.syncControlSettings("Manual controls unlocked.");
-        }
+    this.elements.autoModeSwitch?.addEventListener('change', () => this.syncControlSettings({ autoMode: this.elements.autoModeSwitch.checked }));
+    this.devices.bulb.switch?.addEventListener('change', () => this.syncControlSettings({ bulbOn: this.devices.bulb.switch.checked }));
+    this.devices.fan.switch?.addEventListener('change',()=>this.syncControlSettings({fanOn:this.devices.fan.switch.checked}));
+    [1, 2].forEach(motor => {
+      const device = motor === 1 ? this.devices.turner : this.devices.turner2;
+      device.switch?.addEventListener('change', () => device.switch.checked ?
+        this.turnEggsNow(motor) : this.stopEggs(motor));
+      this.elements[motor === 1 ? 'turnEggBtn' : 'turnEgg2Btn']?.addEventListener('click', () => {
+        const seconds = this.manualDuration(motor);
+        if (seconds === null) return;
+        this.confirmAction({ title: `Run ${this.motorLabel(motor)}?`,
+          message: `Run for ${seconds} seconds using the calibrated motor travel?`,
+          confirmText: 'Start turner', cancelText: 'Cancel',
+          onConfirm: () => this.turnEggsNow(motor, seconds) });
       });
+      this.elements[motor === 1 ? 'stopEggBtn' : 'stopEgg2Btn']?.addEventListener('click', () => this.stopEggs(motor));
+      this.elements[`turnDuration${motor}`]?.addEventListener('blur', () => this.manualDuration(motor));
     });
+    this.elements.saveSettingsBtn?.addEventListener('click', () => this.reviewSettings());
 
-    Object.values(this.devices).forEach(device => {
-      device.switch?.addEventListener("change", () => {
-        this.updateControlState();
-        this.syncControlSettings(`${device.label} updated.`);
-      });
-    });
-
-    this.elements.turnEggBtn?.addEventListener("click", () => {
-      this.confirmAction({
-        title: "Turn eggs now?",
-        message: "This will run a manual egg turn cycle immediately.",
-        confirmText: "Turn eggs",
-        confirmClass: "modal-btn-primary",
-        cancelText: "Cancel",
-        onConfirm: () => this.turnEggsNow()
-      });
-    });
-
-    this.elements.saveSettingsBtn?.addEventListener("click", () => {
-      this.confirmAction({
-        title: "Save control settings?",
-        message: "This will save the target temperature, humidity, and egg turn interval to the ESP32.",
-        confirmText: "Save settings",
-        confirmClass: "modal-btn-primary",
-        cancelText: "Cancel",
-        onConfirm: () => this.saveSettings()
-      });
-    });
   },
-
-  confirmSwitchChange(event, options) {
-    const switchInput = event.currentTarget;
-    const requestedValue = switchInput.checked;
-
-    event.preventDefault();
-    switchInput.checked = !requestedValue;
-
-    this.confirmAction({
-      ...options,
-      cancelText: "Cancel",
-      onConfirm: () => {
-        switchInput.checked = requestedValue;
-        options.onConfirm();
-      }
-    });
+  manualDuration(motor, report = true) {
+    const input = this.elements[`turnDuration${motor}`];
+    const text = String(input?.value ?? '').trim(), seconds = Number(text);
+    const valid = /^\d+$/.test(text) && seconds >= 1 && seconds <= 600 && Number.isInteger(seconds);
+    this.setText(`turnDuration${motor}Error`, !valid && report ? 'Enter a whole number from 1 to 600 seconds.' : '');
+    input?.setAttribute('aria-invalid', String(!valid));
+    return valid ? seconds : null;
   },
-
-  updateControlState() {
-    const autoOn = this.elements.autoModeSwitch?.checked ?? true;
-
-    Object.values(this.devices).forEach(device => {
-      if (device.switch) {
-        device.switch.disabled = autoOn;
-      }
-
-      device.card?.classList.toggle("locked", autoOn);
-      this.updateDeviceText(device, autoOn);
-    });
-
-    if (this.elements.turnEggBtn) {
-      this.elements.turnEggBtn.disabled = autoOn;
-    }
-
-    HatchApp.setText("controlStatusBadge", autoOn ? "Auto Mode: ON" : "Auto Mode: OFF");
-    HatchApp.setText("autoStateText", autoOn ? "Auto ON" : "Auto OFF");
-    HatchApp.setText(
-      "autoDescription",
-      autoOn
-        ? "Manual controls are locked while automatic mode is active."
-        : "Manual controls are now available for the bulb, fan, and egg turner."
-    );
-    HatchApp.setText("lockBadge", autoOn ? "Manual Controls Locked" : "Manual Controls Unlocked");
-    HatchApp.setText("summaryAuto", autoOn ? "ON" : "OFF");
-    HatchApp.setText("summaryLock", autoOn ? "Locked" : "Unlocked");
-
-    if (this.elements.lockBadge) {
-      this.elements.lockBadge.className = autoOn
-        ? "status-pill status-ok"
-        : "status-pill status-warning";
-    }
-  },
-
-  updateDeviceText(device, autoOn) {
-    if (!device.switch) return;
-
-    const deviceOn = device.switch.checked;
-    const statusText = autoOn ? "Auto" : (deviceOn ? "ON" : "OFF");
-    const detailText = autoOn ? device.autoText : (deviceOn ? device.onText : device.offText);
-
-    if (device.summary) {
-      device.summary.textContent = statusText;
-    }
-
-    if (device.text) {
-      device.text.textContent = detailText;
-    }
-  },
-
-  collectPayload() {
-    return {
-      autoMode: this.elements.autoModeSwitch?.checked ?? true,
-      bulbOn: this.devices.bulb.switch?.checked ?? false,
-      fanOn: this.devices.fan.switch?.checked ?? false,
-      turnerOn: this.devices.turner.switch?.checked ?? false,
-      targetTemperature: this.parseNumber(
-        this.elements.targetTemp?.value,
-        37.8
-      ),
-      targetHumidity: this.parseNumber(
-        this.elements.targetHumidity?.value,
-        58
-      ),
-      turnIntervalMinutes: Number(this.elements.turnInterval?.value) || 120
-    };
-  },
-
   parseNumber(value, fallback) {
-    const parsed = Number.parseFloat(String(value || "").replace(/[^\d.-]/g, ""));
-    return Number.isFinite(parsed) ? parsed : fallback;
+    const text = String(value ?? '').replace(/[°C%\s]/g, '');
+    const n = Number(text);
+    return text && Number.isFinite(n) ? n : fallback;
   },
-
-  formatTemperature(value) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed.toFixed(1) + this.degreeC : "37.8" + this.degreeC;
+  collectPayload() {
+    const duration = this.manualDuration(1), duration2 = this.manualDuration(2);
+    const temperature = this.parseNumber(this.elements.targetTemp?.value, NaN);
+    const humidity = this.parseNumber(this.elements.targetHumidity?.value, NaN);
+    if (duration === null || duration2 === null || !(temperature >= 30 && temperature <= 37.8) ||
+        !(humidity >= 0 && humidity <= 100)) throw new Error('Use a 30–37.8°C target, 0–100% humidity and valid motor durations.');
+    return { autoMode: this.elements.autoModeSwitch?.checked ?? true,
+      bulbOn: this.devices.bulb.switch?.checked ?? false, fanOn: this.devices.fan?.switch?.checked ?? true,
+      turnerOn: false, turner2On: false, targetTemperature: temperature, targetHumidity: humidity,
+      turnIntervalMinutes: Number(this.elements.turnInterval?.value) || 120,
+      turnInterval2Minutes: Number(this.elements.turnInterval2?.value) || 120,
+      turnDurationSeconds: duration, turnDuration2Seconds: duration2 };
   },
-
+  updateControlState() {
+    const auto = this.elements.autoModeSwitch?.checked ?? true;
+    const blocked = this.isSyncing || !this.firmwareReady;
+    const formBlocked=blocked;
+    ['targetTemp', 'targetHumidity', 'turnInterval', 'turnInterval2'].forEach(id => {
+      if (this.elements[id]) this.elements[id].disabled = formBlocked;
+    });
+    if (this.elements.autoModeSwitch) this.elements.autoModeSwitch.disabled = blocked;
+    if (this.elements.saveSettingsBtn) this.elements.saveSettingsBtn.disabled = formBlocked;
+    if (this.devices.fan.switch) this.devices.fan.switch.disabled=blocked || auto;
+    if (this.devices.bulb.switch) this.devices.bulb.switch.disabled=blocked || auto;
+    [1, 2].forEach(motor => {
+      const d = motor === 1 ? this.devices.turner : this.devices.turner2;
+      const p = this.profiles[motor-1] || {};
+      if (d.switch) d.switch.disabled=blocked || auto;
+      const run=this.elements[motor===1 ? 'turnEggBtn' : 'turnEgg2Btn'];
+      if(run) run.disabled=blocked || auto || d.pulseActive || d.queued;
+      const stop = this.elements[motor === 1 ? 'stopEggBtn' : 'stopEgg2Btn'];
+      if (stop) stop.disabled = blocked || auto || !(d.actualOn || d.queued);
+      if (this.elements[`turnDuration${motor}`]) this.elements[`turnDuration${motor}`].disabled = formBlocked || d.pulseActive;
+    });
+    this.setText('controlStatusBadge', auto ? 'Auto Mode: ON' : 'Auto Mode: OFF');
+    this.setText('lockBadge', !this.firmwareReady ? 'Waiting for updated firmware' : auto ? 'Automatic heating' : 'Manual controls active');
+    this.setText('autoDescription', auto ? 'Automatic mode controls all outputs. Switch to Manual mode to use relay switches and roller Run/Stop.' :
+      'Manual heating and timed motor runs remain protected by temperature, sensor and lockdown limits. Fan OFF requests are overridden during heating or faults.');
+  },
+  rollerName(motor) { return motor === 1 ? 'Lower roller' : 'Upper roller'; },
+  batchLabel(motor) {
+    const p=this.profiles[motor-1] || {};
+    const batch=this.batches.find(b=>b.id===p.batchId);
+    return p.label || batch?.label || (p.batchId ? p.batchId : 'No batch');
+  },
+  motorLabel(motor) { return `${this.rollerName(motor)} · ${this.batchLabel(motor)}`; },
+  renderBatchLabels() {
+    this.batches=window.HatchBatchStore?.loadBatches() || [];
+    [1,2].forEach(motor=>{
+      const label=this.motorLabel(motor);
+      this.setText(motor===1 ? 'turnerTitle' : 'turner2Title',label);
+      this.setText(motor===1 ? 'turnEggBtn' : 'turnEgg2Btn',`Run ${this.batchLabel(motor) === 'No batch' ? this.rollerName(motor).toLowerCase() : this.batchLabel(motor)}`);
+      const d=motor===1 ? this.devices.turner : this.devices.turner2;
+      d.switch?.setAttribute('aria-label',`${label} timed run`);
+    });
+  },
   applyRemoteState(data, options = {}) {
-    const control = data.control || {};
-    const updateFields = options.updateFields === true;
-
-    if (typeof control.autoMode === "boolean" && this.elements.autoModeSwitch) {
-      this.elements.autoModeSwitch.checked = control.autoMode;
+    const c = data.control || {};
+    this.safety = data.safety || {}; this.profiles = this.safety.batches || [];
+    this.recovery = data.recovery || {};
+    this.firmwareReady = this.safety.version === 2 && Object.entries(EXPECTED_RELAY_PINS).every(
+      ([key, pin]) => data.relayPins?.[key] === pin);
+    if (typeof c.autoMode === 'boolean') this.elements.autoModeSwitch.checked = c.autoMode;
+    Object.entries(this.devices).forEach(([key, d]) => {
+      d.actualOn = c[`${key}On`] === true;
+      if (d.switch) d.switch.checked = !c.autoMode && key==='bulb' ? c.manualBulbOn ?? c.bulbOn : !c.autoMode && key==='fan' ? c.manualFanOn ?? c.fanOn : d.actualOn;
+    });
+    [1, 2].forEach(motor => {
+      const d = motor === 1 ? this.devices.turner : this.devices.turner2;
+      d.pulseActive = c[motor === 1 ? 'turnPulseActive' : 'turnPulse2Active'] === true;
+      d.queued = c[motor === 1 ? 'turnQueued' : 'turn2Queued'] === true;
+      d.remainingSeconds = c[motor === 1 ? 'turnPulseRemainingSeconds' : 'turnPulse2RemainingSeconds'] || 0;
+      const profile=this.profiles[motor-1] || {};
+      if (d.text) d.text.textContent = d.pulseActive ? `Timed run: ${d.remainingSeconds} seconds remaining` :
+        d.queued ? 'Start queued' : profile.canManualRun && !profile.canRun ?
+        `Manual ready; automatic: ${profile.status || 'not scheduled'}` : profile.status || 'Turning disabled';
+    });
+    const low=c.heaterOnBelow, high=c.heaterOffAbove;
+    this.setText('bulbText', c.autoMode ?
+      c.heaterControl==='thermostat_hysteresis' && Number.isFinite(low) && Number.isFinite(high) ?
+        `ON below ${low.toFixed(1)}°C; OFF above ${high.toFixed(1)}°C` : 'Thermostat limits unavailable' :
+      'Manual · up to 5 seconds before relay ON');
+    this.setText('fanText', c.autoMode ? 'Automatic circulation' : c.manualFanOn===false && c.fanOn ? 'Requested OFF; running for heating or sensor/temperature protection' : `Manual request; relay ${c.fanOn ? 'ON' : 'OFF'}`);
+    this.setText('heaterStatus', c.heaterStatus || 'Heating detail unavailable; update firmware');
+    this.setText('bulbActualState', c.bulbOn === true ? 'ON' : 'OFF');
+    this.setText('heaterDemandValue', c.autoMode === false ? 'Manual' :
+      c.heaterControl === 'thermostat_hysteresis' ? 'Thermostat' : 'Unavailable');
+    this.setText('controlNotice', `${this.safety.message || 'Controller connected.'} ${this.recovery.checkpointFault ? 'SD save is retrying; details are in Settings > Component status.' : this.recovery.checkpointPending ? 'Saving automatically to SD...' : this.recovery.ready ? 'SD recovery synced.' : 'Recovery is checking saved state.'}`);
+    this.setText('wifiStatus', data.wifiStatus || 'Offline');
+    if (options.updateFields) {
+      this.elements.targetTemp.value = `${Number(c.targetTemperature ?? 37.5).toFixed(1)}°C`;
+      this.elements.targetHumidity.value = `${c.targetHumidity ?? 55}%`;
+      this.elements.turnInterval.value = String(c.turnIntervalMinutes || 120);
+      this.elements.turnInterval2.value = String(c.turnInterval2Minutes || 120);
+      this.elements.turnDuration1.value = String(c.turnDurationSeconds || 120);
+      this.elements.turnDuration2.value = String(c.turnDuration2Seconds || 120);
     }
-
-    if (typeof control.bulbOn === "boolean" && this.devices.bulb.switch) {
-      this.devices.bulb.switch.checked = control.bulbOn;
-    }
-
-    if (typeof control.fanOn === "boolean" && this.devices.fan.switch) {
-      this.devices.fan.switch.checked = control.fanOn;
-    }
-
-    if (typeof control.turnerOn === "boolean" && this.devices.turner.switch) {
-      this.devices.turner.switch.checked = control.turnerOn;
-    }
-
-    if (updateFields) {
-      if (control.targetTemperature != null && this.elements.targetTemp) {
-        this.elements.targetTemp.value = this.formatTemperature(control.targetTemperature);
-      }
-
-      if (control.targetHumidity != null && this.elements.targetHumidity) {
-        this.elements.targetHumidity.value = Math.round(Number(control.targetHumidity)) + "%";
-      }
-
-      if (control.turnIntervalMinutes && this.elements.turnInterval) {
-        this.elements.turnInterval.value = String(control.turnIntervalMinutes);
-      }
-    }
-
-    HatchApp.setText("lastTurnValue", data.lastTurn || "None");
-    HatchApp.setText("wifiStatus", data.wifiStatus || "Offline");
-
-    this.updateControlState();
+    this.renderBatchLabels(); this.updateControlState();
   },
-
   async loadControllerState(options = {}) {
-    if (this.isSyncing || !window.HatchEspApi) {
-      return;
-    }
-
+    if (this.isSyncing || this.isLoading || document.hidden) return;
+    this.isLoading = true;
     try {
-      const data = await HatchEspApi.getData();
-      this.applyRemoteState(data, options);
-      HatchApp.setText("settingsStatus", "Synced");
+      const request = HatchEspApi.getData();
+      this.loadTask = request.catch(() => {});
+      const data = await request;
+      this.applyRemoteState(data, { updateFields: options.updateFields || !this.firmwareReady });
+      this.setText('settingsStatus', this.firmwareReady ? 'Synced' : 'Update firmware and web files');
     } catch (error) {
-      HatchApp.setText("wifiStatus", "Offline");
-      HatchApp.setText("settingsStatus", "Waiting for ESP32");
-    }
-  },
-
-  async syncControlSettings(successMessage) {
-    if (!window.HatchEspApi) {
-      HatchApp.setText("settingsStatus", "Local only");
-      return;
-    }
-
-    this.isSyncing = true;
-    HatchApp.setText("settingsStatus", "Saving...");
-
-    try {
-      const data = await HatchEspApi.updateControl(this.collectPayload());
-      this.applyRemoteState(data, { updateFields: true });
-      HatchApp.setText("settingsStatus", "Saved");
-
-      if (successMessage) {
-        window.HatchToast?.success(successMessage);
-      }
-    } catch (error) {
-      HatchApp.setText("settingsStatus", "ESP32 not reachable");
-      window.HatchToast?.warning("ESP32 not reachable. Check Wi-Fi and firmware upload.");
+      this.firmwareReady = false; this.setText('settingsStatus', 'ESP32 unavailable');
+      this.setText('controlNotice','ESP32 unavailable. Displayed states may be out of date.');
     } finally {
-      this.isSyncing = false;
+      this.isLoading = false; this.updateControlState(); clearTimeout(this.pollTimer);
+      if (!document.hidden) this.pollTimer = setTimeout(() => this.loadControllerState(), 5000);
     }
   },
-
-  async turnEggsNow() {
-    if (!window.HatchEspApi) {
-      HatchApp.setText("lastTurnValue", "Just now");
-      HatchApp.setText("turnerText", "Manual egg turn completed");
-      return;
-    }
-
-    this.isSyncing = true;
-    HatchApp.setText("settingsStatus", "Turning...");
-
+  async perform(operation, success = 'Saved') {
+    if (!this.firmwareReady || this.isSyncing) return false;
+    this.isSyncing = true; this.updateControlState(); this.setText('settingsStatus', 'Applying…');
     try {
-      const data = await HatchEspApi.turnEggsNow();
-      this.applyRemoteState(data);
-      HatchApp.setText("lastTurnValue", "Just now");
-      HatchApp.setText("settingsStatus", "Saved");
-      window.HatchToast?.success("Manual egg turn started.");
+      if (this.isLoading) await this.loadTask;
+      const data = await operation(); this.applyRemoteState(data);
+      this.setText('settingsStatus', success); window.HatchToast?.success(success); return true;
     } catch (error) {
-      HatchApp.setText("settingsStatus", "ESP32 not reachable");
-      window.HatchToast?.warning("Unable to reach the ESP32 turner endpoint.");
+      this.setText('settingsStatus', error.message); window.HatchToast?.warning(error.message);
+      try { this.applyRemoteState(await HatchEspApi.getData()); } catch (_) { this.firmwareReady=false; }
+      return false;
     } finally {
-      this.isSyncing = false;
+      this.isSyncing = false; this.updateControlState(); clearTimeout(this.pollTimer);
+      if (!document.hidden) this.pollTimer = setTimeout(() => this.loadControllerState(), 5000);
     }
   },
-
-  saveSettings() {
-    this.syncControlSettings("Control settings saved to ESP32.");
-  }
+  syncControlSettings(payload) {
+    if(this.elements.autoModeSwitch?.checked && ['bulbOn','fanOn','turnerOn','turner2On'].some(key=>key in payload)) {
+      this.setText('settingsStatus','Switch to Manual mode before controlling relays.');
+      this.loadControllerState(); return;
+    }
+    // Immediate switches must not save unrelated edits that have not been reviewed.
+    return this.perform(() => HatchEspApi.updateControl(payload), 'Control updated');
+  },
+  collectSettingsReview() {
+    const payload = this.collectPayload();
+    return { payload, bindings: this.profiles.map(p=>p.batchId || '') };
+  },
+  reviewSettings() {
+    if (!this.firmwareReady || this.isSyncing) return;
+    try {
+      const snapshot = this.collectSettingsReview(), p = snapshot.payload;
+      const details = [['Saved operating mode',p.autoMode ? 'Automatic' : 'Manual'],
+        ['Target temperature', `${p.targetTemperature}°C`], ['Target humidity', `${p.targetHumidity}%`]];
+      [1,2].forEach(motor => details.push([this.motorLabel(motor),
+        `${motor===1 ? p.turnDurationSeconds : p.turnDuration2Seconds} sec every ${motor===1 ? p.turnIntervalMinutes : p.turnInterval2Minutes} min`]));
+      details.push(['After power returns',p.autoMode ? 'Restore Automatic mode; heating waits for stable sensor readings.' :
+        'Restore Manual mode; the bulb starts OFF.']);
+      this.confirmAction({ title: 'Save Control Settings?', message: 'Review the mode, targets and roller timing before saving.',
+        details, notice: 'Mode changes are saved immediately. Confirm saves these targets and timings to device memory and queues an SD checkpoint. Automatic turning needs valid RTC/SD recovery; unfinished turns are skipped automatically after recovery.',
+        confirmText: 'Confirm & save', cancelText: 'Keep editing', confirmClass: 'modal-btn-primary',
+        onConfirm: () => this.saveSettings(snapshot) });
+    } catch (error) {
+      this.setText('settingsStatus', error.message); window.HatchToast?.warning(error.message);
+    }
+  },
+  saveSettings(snapshot) {
+    return this.perform(async () => {
+      if (snapshot.bindings.some((id,i)=>id!==(this.profiles[i]?.batchId || '')))
+        throw new Error('A roller batch changed while reviewing. Review the settings again.');
+      if(snapshot.payload.autoMode!==this.elements.autoModeSwitch.checked)
+        throw new Error('The operating mode changed while reviewing. Review the settings again.');
+      const { autoMode, bulbOn, fanOn, turnerOn, turner2On, ...settings } = snapshot.payload;
+      const result=await HatchEspApi.updateControl(settings);
+      this.applyRemoteState(result, { updateFields: true }); return result;
+    }, 'Settings saved to device memory; SD save queued');
+  },
+  turnEggsNow(motor, seconds = this.manualDuration(motor)) {
+    if (seconds === null || this.elements.autoModeSwitch?.checked) return;
+    return this.perform(() => HatchEspApi.turnEggsNow(motor, seconds), `${this.motorLabel(motor)} timed run requested`);
+  },
+  stopEggs(motor) { if(this.elements.autoModeSwitch?.checked) return; return this.perform(() => HatchEspApi.stopEggs(motor), 'Turner stop confirmed'); },
+  safetyAction(action, payload) { return this.perform(() => HatchEspApi.safetyAction(action, payload), 'Device safety settings updated'); }
 };
-
-document.addEventListener("DOMContentLoaded", () => {
-  HatchControl.init();
-});
+document.addEventListener('DOMContentLoaded', () => HatchControl.init());

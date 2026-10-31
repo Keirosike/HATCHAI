@@ -32,7 +32,7 @@
 
       <div class="nav-status">
         <span class="dot"></span>
-        <span id="wifiStatus">Online</span>
+        <span id="wifiStatus">Checking</span>
       </div>
 
       <button
@@ -57,7 +57,7 @@
         <p>Manage account, sensor calibration, Wi-Fi connection, and saved settings.</p>
       </div>
 
-      <div class="badge">Configuration Panel</div>
+      <button id="componentsStatusBtn" class="btn btn-soft" type="button">Component status</button>
     </section>
 
     <section class="settings-grid">
@@ -120,13 +120,14 @@
       <!-- SENSOR CALIBRATION -->
       <article class="card wide-card sensor-card">
         <h2 class="card-title">Sensor Calibration</h2>
-        <p class="subtext">Adjust readings if your sensor is not accurate.</p>
+        <p class="subtext">Compare against a calibrated thermometer near egg height. The temperature offset applies on the ESP32; humidity offset is a browser note only.</p>
 
         <div class="field-group">
           <label for="temperatureOffset">Temperature Offset (°C)</label>
           <input
             type="number"
             id="temperatureOffset"
+            min="-2" max="2"
             class="input-box"
             value="0.0"
             step="0.1"
@@ -159,79 +160,56 @@
         <h2 class="card-title">ESP32 Wi-Fi Connection</h2>
         <p class="subtext">Connect the ESP32 controller to your Wi-Fi network.</p>
 
+        <div class="wifi-current">
+          <svg class="wifi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 16a5.5 5.5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg>
+          <div class="wifi-current-name">
+            <p id="wifiConnectionLabel">ESP32 connection</p>
+            <h3 id="espConnectedSsid">Checking connection...</h3>
+            <span class="status-pill status-warning" id="espWifiBadge">Checking</span>
+          </div>
+          <button class="btn btn-soft wifi-info-button" type="button" id="wifiInfoBtn" aria-label="Network information" aria-expanded="false" aria-controls="wifiConnectionDetails">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v2"/></svg>
+          </button>
+        </div>
+
+        <div class="wifi-details" id="wifiConnectionDetails" hidden>
+          <h3>Network information</h3>
+          <dl class="wifi-details-grid">
+            <div><dt>Connected Wi-Fi</dt><dd id="wifiDetailSsid">---</dd></div>
+            <div><dt>Saved network on ESP32</dt><dd id="wifiSavedSsid">---</dd></div>
+            <div><dt>ESP32 IP address</dt><dd id="espIpAddress">---</dd></div>
+            <div><dt>Signal strength</dt><dd id="espSignal">---</dd></div>
+            <div><dt>Setup Wi-Fi</dt><dd id="wifiSetupSsid">---</dd></div>
+            <div><dt>Setup IP address</dt><dd id="wifiSetupIp">---</dd></div>
+          </dl>
+          <button class="btn btn-danger" type="button" id="forgetWifiBtn" disabled>Forget network</button>
+          <p class="small-note">Forgetting removes the ESP32's saved network and disconnects it. Rejoin HatchAI-ESP32 to set up Wi-Fi again.</p>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-soft" type="button" id="refreshWifiBtn">Refresh connection</button>
+        </div>
+
         <div class="wifi-scan-box">
           <div class="wifi-scan-header">
             <strong>Available Wi-Fi Networks</strong>
 
             <button class="btn btn-soft" type="button" id="scanWifiBtn">
-              Scan Wi-Fi
+              Refresh networks
             </button>
           </div>
 
           <ul class="wifi-network-list" id="wifiNetworkList">
-            <li>No scan yet. Connect to the ESP32 setup Wi-Fi first, then click Scan Wi-Fi.</li>
+            <li>Looking for nearby Wi-Fi networks...</li>
           </ul>
         </div>
 
-        <div class="form-grid wifi-connect-form">
-          <div class="field-group">
-            <label for="wifiSsid">Wi-Fi SSID</label>
-            <input type="text" id="wifiSsid" class="input-box" placeholder="Select or enter SSID" />
-          </div>
-
-          <div class="field-group">
-            <label for="wifiPassword">Wi-Fi Password</label>
-            <div class="wifi-password-wrap">
-              <input type="password" id="wifiPassword" class="input-box" placeholder="Enter Wi-Fi password" />
-              <button
-                class="btn btn-soft wifi-password-toggle"
-                type="button"
-                id="toggleWifiPassword"
-                aria-pressed="false"
-              >
-                Show
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="btn-row">
-          <button class="btn btn-primary" type="button" id="connectWifiBtn">
-            Connect ESP32
-          </button>
-
-          <button class="btn btn-danger" type="button" id="forgetWifiBtn">
-            Forget Wi-Fi
-          </button>
-        </div>
-
-        <div class="wifi-status-row">
-          <div class="wifi-info-box">
-            <p>ESP32 Wi-Fi Status</p>
-            <h3>
-              <span class="status-pill status-alert" id="espWifiBadge">
-                Disconnected
-              </span>
-            </h3>
-          </div>
-
-          <div class="wifi-info-box">
-            <p>ESP32 IP Address</p>
-            <h3 id="espIpAddress">---</h3>
-          </div>
-
-          <div class="wifi-info-box">
-            <p>Signal Strength</p>
-            <h3 id="espSignal">---</h3>
-          </div>
-        </div>
-
         <div class="wifi-card-status" id="wifiCardStatus" role="status" aria-live="polite">
-          No Wi-Fi action yet.
+          Checking the ESP32 connection...
         </div>
 
         <p class="small-note">
-          ESP32 setup mode should expose endpoints at <strong>192.168.4.1</strong>.
+          Tap a network to connect. Saved networks use the password stored on the ESP32.
         </p>
       </article>
 
@@ -239,7 +217,7 @@
       <article class="card wide-card">
         <h2 class="card-title">Save Configuration</h2>
         <p class="subtext">
-          Save your account, calibration, and Wi-Fi choices for this local dashboard.
+          Temperature calibration is applied on the ESP32. Humidity offset and notes stay in this browser; humidity correction is not applied to the sensor.
         </p>
 
         <div class="btn-row">
@@ -263,7 +241,34 @@
 
   <div class="toast" id="hatchToast" role="status" aria-live="polite"></div>
 
+  <dialog class="wifi-join-dialog" id="wifiJoinDialog" aria-labelledby="wifiJoinTitle" aria-describedby="wifiJoinSsid">
+    <form id="wifiJoinForm">
+      <h2 id="wifiJoinTitle">Join Wi-Fi</h2>
+      <p id="wifiJoinSsid" class="small-note"></p>
+      <div class="field-group">
+        <label for="wifiPassword">Password</label>
+        <div class="wifi-password-wrap">
+          <input type="password" id="wifiPassword" class="input-box" maxlength="64" autocomplete="new-password" />
+          <button class="btn btn-soft wifi-password-toggle" type="button" id="toggleWifiPassword" aria-pressed="false">Show</button>
+        </div>
+      </div>
+      <p id="wifiJoinError" class="wifi-join-error" role="alert"></p>
+      <div class="btn-row">
+        <button class="btn btn-primary" type="submit" id="connectWifiBtn">Connect</button>
+        <button class="btn btn-soft" type="button" id="cancelWifiJoin">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- CONFIRMATION MODAL -->
+  <dialog id="componentsDialog" aria-labelledby="componentsTitle">
+    <div class="component-heading"><h2 id="componentsTitle" tabindex="-1">Component status</h2><button id="closeComponentsBtn" class="btn btn-soft" type="button" aria-label="Close component status">Close</button></div>
+    <p id="componentsSummary" role="status" aria-live="polite">Connecting...</p>
+    <dl id="componentsList" class="component-list"></dl>
+    <p class="subtext">Relay commands do not confirm bulb light, fan airflow or roller movement.</p>
+    <div id="componentActions" class="component-actions"></div>
+  </dialog>
+
   <div class="modal-overlay" id="confirmModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-icon">!</div>
@@ -287,12 +292,13 @@
   </div>
 
   <script src="js/storage.js"></script>
-  <script src="js/authSession.js"></script>
+  <script src="js/authSession.js?v=20261022-sync"></script>
   <script src="js/app.js"></script>
-  <script src="js/espApi.js"></script>
+  <script src="js/espApi.js?v=20261022-sync"></script>
   <script src="js/wifi.js"></script>
   <script src="js/modal.js"></script>
   <script src="js/toastNotification.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/componentStatus.js?v=20261023-sht40"></script>
 </body>
 </html>

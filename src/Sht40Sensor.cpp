@@ -1,118 +1,50 @@
 #include "Sht40Sensor.h"
-#include <Wire.h>
-
-namespace {
-constexpr uint8_t MeasureHighPrecisionCommand = 0xFD;
-constexpr uint8_t MeasurementBytes = 6;
-constexpr uint8_t MaxReadAttempts = 3;
-constexpr uint32_t MeasurementDelayMs = 10;
-}
+#include "Sht40Protocol.h"
 
 Sht40Sensor::Sht40Sensor(uint8_t address) : _address(address) {}
 
 void Sht40Sensor::begin() {
-  _ready = probe();
-  Serial.println(_ready ? "SHT40 sensor detected" : "SHT40 sensor not detected");
+  // main.cpp owns Wire initialization and its bounded I2C timeout.
+  _startedMs=millis(); _initialized=true;
+  Wire.beginTransmission(_address);
+  const bool detected=Wire.endTransmission()==0;
+  Serial.printf("SHT40 I2C %s at 0x%02X; measurements require valid CRC\n",detected?"detected":"not detected",_address);
 }
 
 SensorReading Sht40Sensor::read() {
-  SensorReading lastReading;
-
-  for (uint8_t attempt = 0; attempt < MaxReadAttempts; attempt++) {
-    if (attempt > 0) {
-      delay(20);
-    }
-
-    lastReading = readOnce();
-
-    if (lastReading.valid) {
-      _latest = lastReading;
-      return lastReading;
-    }
-  }
-
-  return lastReading;
-}
-
-SensorReading Sht40Sensor::latest() const {
-  return _latest;
-}
-
-bool Sht40Sensor::hasValidReading() const {
-  return _latest.valid;
-}
-
-SensorReading Sht40Sensor::readOnce() {
   SensorReading reading;
-  reading.timestampMs = millis();
-
+  reading.timestampMs=millis();
+  if(!_initialized) { reading.error="SHT40 not initialized"; return reading; }
+  if(uint32_t(reading.timestampMs-_startedMs)<HatchConfig::SensorStartupMs) {
+    reading.error="SHT40 starting up"; return reading;
+  }
   Wire.beginTransmission(_address);
-  Wire.write(MeasureHighPrecisionCommand);
-
-  if (Wire.endTransmission() != 0) {
-    _ready = false;
-    reading.error = "SHT40 sensor not detected";
-    return reading;
+  Wire.write(HatchSht40::MeasureHighPrecision);
+  if(Wire.endTransmission()!=0) {
+    reading.error="SHT40 I2C command failed; check sensor wiring/address"; return reading;
   }
-
-  _ready = true;
-  delay(MeasurementDelayMs);
-
-  if (Wire.requestFrom(_address, MeasurementBytes) != MeasurementBytes) {
-    reading.error = "SHT40 measurement response incomplete";
-    return reading;
+  // Required conversion interval, one bounded attempt; no busy polling/retries.
+  // Sensor heater commands are never used for incubation measurements.
+  delay(HatchConfig::Sht40ConversionMs);
+  uint8_t bytes[6];
+  const size_t received=Wire.requestFrom(_address,uint8_t(sizeof(bytes)));
+  if(received!=sizeof(bytes) || Wire.available()!=sizeof(bytes)) {
+    while(Wire.available()) Wire.read();
+    reading.error="SHT40 I2C short read or timeout"; return reading;
   }
-
-  uint8_t data[MeasurementBytes];
-
-  for (uint8_t index = 0; index < MeasurementBytes; index++) {
-    data[index] = Wire.read();
+  for(uint8_t i=0;i<sizeof(bytes);++i) bytes[i]=Wire.read();
+  if(!HatchSht40::validFrame(bytes,sizeof(bytes))) {
+    reading.error="SHT40 CRC error"; return reading;
   }
-
-  if (calculateCrc(data, 2) != data[2]) {
-    reading.error = "SHT40 temperature CRC mismatch";
-    return reading;
+  reading.temperatureC=HatchSht40::temperature((uint16_t(bytes[0])<<8)|bytes[1]);
+  reading.humidityPercent=HatchSht40::humidity((uint16_t(bytes[3])<<8)|bytes[4]);
+  // Preserve the existing application/model range, narrower than the sensor's.
+  if(!isfinite(reading.temperatureC) || !isfinite(reading.humidityPercent) ||
+      reading.temperatureC < -40 || reading.temperatureC > 80) {
+    reading.error="SHT40 reading outside incubator permitted range"; return reading;
   }
-
-  if (calculateCrc(data + 3, 2) != data[5]) {
-    reading.error = "SHT40 humidity CRC mismatch";
-    return reading;
-  }
-
-  const uint16_t rawTemperature =
-    (static_cast<uint16_t>(data[0]) << 8) | data[1];
-  const uint16_t rawHumidity =
-    (static_cast<uint16_t>(data[3]) << 8) | data[4];
-
-  reading.temperatureC = -45.0f + 175.0f * rawTemperature / 65535.0f;
-  reading.humidityPercent = -6.0f + 125.0f * rawHumidity / 65535.0f;
-  reading.humidityPercent = constrain(reading.humidityPercent, 0.0f, 100.0f);
-
-  if (reading.temperatureC < -40.0f || reading.temperatureC > 125.0f) {
-    reading.error = "SHT40 reading is outside expected range";
-    return reading;
-  }
-
-  reading.valid = true;
-  reading.error = "";
-  return reading;
+  reading.timestampMs=millis(); reading.valid=true; reading.error="";
+  _latest=reading; return reading;
 }
-
-bool Sht40Sensor::probe() {
-  Wire.beginTransmission(_address);
-  return Wire.endTransmission() == 0;
-}
-
-uint8_t Sht40Sensor::calculateCrc(const uint8_t* data, size_t length) const {
-  uint8_t crc = 0xFF;
-
-  for (size_t index = 0; index < length; index++) {
-    crc ^= data[index];
-
-    for (uint8_t bit = 0; bit < 8; bit++) {
-      crc = (crc & 0x80) ? (crc << 1) ^ 0x31 : crc << 1;
-    }
-  }
-
-  return crc;
-}
+SensorReading Sht40Sensor::latest() const { return _latest; }
+bool Sht40Sensor::hasValidReading() const { return _latest.valid; }

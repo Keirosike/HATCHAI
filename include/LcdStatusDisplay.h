@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include "IncubatorTypes.h"
-#include "IncubatorTypes.h"
 
 class LcdStatusDisplay {
 public:
@@ -14,8 +13,10 @@ public:
   void showBoot(const String& message);
   void showStatus(
     const SensorReading& reading,
-    bool turnerOn,
-    const String& hatchDateText
+    const String& upperBatch,
+    const String& lowerBatch,
+    const String& hatchDateText,
+    const String& alarmText = ""
   );
 
 private:

@@ -121,12 +121,21 @@ const HatchSettings = {
     HatchApp.setValue("username", account.username || DEFAULT_ACCOUNT.username);
   },
 
-  saveSettings() {
+  async saveSettings() {
+    const settings = this.getSettingsData();
+    const offset = Number(settings.temperatureOffset);
+    if (!String(settings.temperatureOffset).trim() || !Number.isFinite(offset) || offset < -2 || offset > 2) {
+      this.setStatus("Temperature offset must be between -2 and +2°C.", "#DC2626", "warning"); return;
+    }
     const accountSaved = this.saveAccount({ showSuccess: false });
 
     if (!accountSaved) return;
 
-    const settings = this.getSettingsData();
+    try {
+      await HatchEspApi.updateControl({ temperatureOffset: offset });
+    } catch (error) {
+      this.setStatus("Temperature calibration was not applied: " + error.message, "#DC2626", "warning"); return;
+    }
 
     HatchStorage.set("hatchaiSettings", settings);
 
@@ -137,7 +146,11 @@ const HatchSettings = {
     this.setStatus("Settings saved successfully.", "#16A34A", "success");
   },
 
-  resetSettings() {
+  async resetSettings() {
+    try { await HatchEspApi.updateControl({ temperatureOffset: 0 }); }
+    catch (error) {
+      this.setStatus("Reset not applied to ESP32: " + error.message, "#DC2626", "warning"); return;
+    }
     this.applySettings(DEFAULT_SETTINGS);
 
     HatchStorage.remove("hatchaiSettings");
@@ -174,6 +187,10 @@ const HatchSettings = {
     this.applyAccount(account);
     this.applySettings(settings);
     this.updateAccountDisplay();
+    window.HatchEspApi?.getData().then(data => {
+      if (Number.isFinite(data.control?.temperatureOffset))
+        HatchApp.setValue("temperatureOffset", String(data.control.temperatureOffset));
+    }).catch(() => {});
   },
 
   logoutUser() {
@@ -226,7 +243,7 @@ const HatchSettings = {
     HatchApp.get("saveSettingsBtn")?.addEventListener("click", () => {
       this.confirmAction({
         title: "Save settings?",
-        message: "This will save your account and incubator configuration in this browser.",
+        message: "Save the temperature offset to the ESP32 and account/notes to this browser? Heating pauses until sensor readings are validated again.",
         confirmText: "Save settings",
         confirmClass: "modal-btn-primary",
         cancelText: "Cancel",

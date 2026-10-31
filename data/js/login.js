@@ -82,7 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const session = await window.HatchAuthSession.start(username, password);
 
     if (!session.ok) {
-      const canUseLocalFallback = !session.available || session.status === 401;
+      const canUseLocalFallback = !session.available;
       const fallbackStarted = canUseLocalFallback
         ? await startLocalSession(username, password)
         : false;

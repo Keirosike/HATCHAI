@@ -30,7 +30,7 @@
 
       <div class="nav-status">
         <span class="dot"></span>
-        <span id="wifiStatus">Online</span>
+        <span id="wifiStatus">Checking</span>
       </div>
 
       <button class="hamburger" id="hamburger" aria-label="Toggle menu" aria-expanded="false" aria-controls="navLinks">
@@ -48,17 +48,18 @@
         <p>Real-time monitoring and control overview</p>
       </div>
 
-      <div class="badge" id="lastUpdated">Last updated: 10:42 AM</div>
+      <div class="badge" id="lastUpdated">Waiting for ESP32 data</div>
     </div>
 
+    <p class="card safety-note" id="safetyBanner" role="status" aria-live="polite">Waiting for incubator safety status.</p>
     <section class="grid dashboard-grid">
       <div class="card">
         <div class="card-header">
           <div class="card-title">Current Temperature</div>
           <div class="icon-box">T</div>
         </div>
-        <div class="value" id="tempValue">37.8&deg;C</div>
-        <div class="subtext">Within optimal incubation range</div>
+        <div class="value" id="tempValue">--</div>
+        <div class="subtext" id="temperatureReadingNote" role="status">Shared incubator temperature</div>
       </div>
 
       <div class="card">
@@ -66,17 +67,17 @@
           <div class="card-title">Current Humidity</div>
           <div class="icon-box">H</div>
         </div>
-        <div class="value" id="humidityValue">58%</div>
-        <div class="subtext">Stable humidity detected</div>
+        <div class="value" id="humidityValue">--</div>
+        <div class="subtext" id="humidityReadingNote" role="status">Shared incubator humidity</div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Relay / Bulbs Status</div>
+          <div class="card-title">Heating Bulb Status</div>
           <div class="icon-box">R</div>
         </div>
-        <div class="value value-small" id="relayValue">Heating ON</div>
-        <div class="status-pill status-on" id="relayBadge">Bulbs Active</div>
+        <div class="value value-small" id="relayValue">Unknown</div>
+        <div class="status-pill status-off" id="relayBadge">Waiting for data</div>
       </div>
 
       <div class="card">
@@ -84,8 +85,8 @@
           <div class="card-title">Motor Status</div>
           <div class="icon-box">M</div>
         </div>
-        <div class="value value-small" id="motorValue">Idle</div>
-        <div class="subtext" id="motorSubtext">Next egg turning in 1 hr 20 min</div>
+        <div class="value value-small" id="motorValue">Unknown</div>
+        <div class="subtext" id="motorSubtext">Waiting for ESP32 data</div>
       </div>
 
       <div class="card wide-card">
@@ -127,7 +128,7 @@
       <div class="card chart-card">
         <div class="card-header">
           <div class="card-title">Temperature & Humidity Trend</div>
-          <div class="chart-label">Live</div>
+          <div class="chart-label" id="chartStatus">Waiting for data</div>
         </div>
 
         <div class="chart-filters">
@@ -148,10 +149,10 @@
         <div class="card-title">Quick Summary</div>
 
         <ul class="mini-list">
-          <li><span>Temperature trend</span> <strong id="summaryTemp">Stable</strong></li>
-          <li><span>Humidity trend</span> <strong id="summaryHumidity">Normal</strong></li>
-          <li><span>Relay activity</span> <strong id="summaryRelay">Automatic</strong></li>
-          <li><span>Egg turning</span> <strong id="summaryTurning">Enabled</strong></li>
+          <li><span>Temperature trend</span> <strong id="summaryTemp">No data</strong></li>
+          <li><span>Humidity trend</span> <strong id="summaryHumidity">No data</strong></li>
+          <li><span>Relay activity</span> <strong id="summaryRelay">Unknown</strong></li>
+          <li><span>Egg turning</span> <strong id="summaryTurning">Unknown</strong></li>
         </ul>
       </div>
 
@@ -159,15 +160,15 @@
         <div class="card-title">Recent Status</div>
 
         <ul class="mini-list">
-          <li><span>Last egg turn</span> <strong id="lastTurnValue">09:20 AM</strong></li>
+          <li><span>Last egg turn</span> <strong id="lastTurnValue">Unknown</strong></li>
           <li><span>Turns today</span> <strong id="turnsTodayValue">0</strong></li>
           <li><span>Total turns</span> <strong id="totalTurnsValue">0</strong></li>
           <li><span>Actual turn interval</span> <strong id="actualTurnIntervalValue">Not measured</strong></li>
           <li><span>Last anomaly</span> <strong id="lastAnomalyValue">None</strong></li>
-          <li><span>Sensor reading</span> <strong id="sensorStatusValue">Connected</strong></li>
-          <li><span>RTC clock</span> <strong id="rtcValue">Ready</strong></li>
-          <li><span>SD logging</span> <strong id="sdValue">Ready</strong></li>
-          <li><span>Wi-Fi status</span> <strong id="wifiValue">Online</strong></li>
+          <li><span>Sensor reading</span> <strong id="sensorStatusValue">Waiting for data</strong></li>
+          <li><span>RTC clock</span> <strong id="rtcValue">Unknown</strong></li>
+          <li><span>SD logging</span> <strong id="sdValue">Unknown</strong></li>
+          <li><span>Wi-Fi status</span> <strong id="wifiValue">Checking</strong></li>
         </ul>
       </div>
     </section>
@@ -175,9 +176,9 @@
 
   <script src="js/app.js?v=20260728b"></script>
   <script src="js/storage.js?v=20260728b"></script>
-  <script src="js/authSession.js?v=20260728b"></script>
-  <script src="js/batchStore.js?v=20260728b"></script>
-  <script src="js/espApi.js?v=20260728b"></script>
-  <script src="js/dashboard.js?v=20260728b"></script>
+  <script src="js/authSession.js?v=20261021-recovery"></script>
+  <script src="js/batchStore.js?v=20261022-nvs-prediction"></script>
+  <script src="js/espApi.js?v=20261021-recovery"></script>
+  <script src="js/dashboard.js?v=20261022-sensor-retain"></script>
 </body>
 </html>

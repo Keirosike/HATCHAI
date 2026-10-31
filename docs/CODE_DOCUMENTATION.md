@@ -1,6 +1,15 @@
 # HatchAI Code Documentation
 
+> Current sensor hardware: [SHT40 version](SHT40_VERSION.md). Older sensor-specific wiring instructions are historical.
+
+> See [automatic sync update](AUTOMATIC_SYNC.md) for current SD/clock startup, direct fan/roller controls, Both placement, day-18 cutoff and snapshot/profile migration. Older setup-button instructions below are historical.
+
+> Current manual control, roller selection and LCD behavior: [roller control update](MANUAL_ROLLER_CONTROL.md).
+
+> Control recovery update: see [automatic startup and SHT40 recovery](CONTROL_RECOVERY_FIX.md) for current sensor freshness, SD-independent heating, restart hold and timed-turn behavior.
+
 This document explains the structure and behavior of the HatchAI ESP32 codebase.
+For the current safety profile and commissioning steps, see [Integrated Control](INTEGRATED_CONTROL.md).
 It is written for maintaining, presenting, debugging, and extending the project.
 
 ## 1. Project Overview
@@ -20,6 +29,7 @@ board = esp32dev
 framework = arduino
 monitor_speed = 115200
 board_build.filesystem = spiffs
+lib_deps =
 ```
 
 The source code is split into:
@@ -35,11 +45,11 @@ Hardware pins and default settings are defined in `include/Config.h`.
 
 | Device | Setting |
 | --- | --- |
-| SHT40 temperature/humidity probe | I2C address `0x44` |
-| Bulb 1 relay | GPIO 26 |
-| Bulb 2 relay | GPIO 25 |
-| Fan relay | GPIO 14 |
-| Egg turner relay | GPIO 27 |
+| SHT40 temperature/humidity sensor | I2C 0x44, SDA GPIO 21 / SCL GPIO 22 |
+| Heating bulb relay (IN2) | GPIO 27 |
+| Fan relay (IN1) | GPIO 14 |
+| Upper roller relay (IN3) | GPIO 26 |
+| Lower roller relay (IN4) | GPIO 25 |
 | Relay polarity | Active-low |
 | I2C SDA | GPIO 21 |
 | I2C SCL | GPIO 22 |
@@ -56,161 +66,73 @@ Default incubation settings:
 
 | Setting | Value |
 | --- | --- |
-| Target temperature | 37.8 deg C |
-| Target humidity | 58 percent |
+| Target temperature | 37.5 deg C |
+| Target humidity | 55 percent |
 | Egg turn interval | 120 minutes |
 | SHT40 read interval | 5000 ms |
-| Sensor stale timeout | 20000 ms |
-| Turner pulse duration | 8000 ms |
+| Sensor stale timeout | 6500 ms |
+| Automatic turner run, each motor | 15000 ms initially; calibrated 1–600 seconds |
+| Manual timed run, each motor | 1–600 seconds, initially 15 |
 | LCD refresh interval | 2000 ms |
 
 ## 3. Firmware Startup Flow
 
-The firmware starts in `src/main.cpp`.
+The objects in `src/main.cpp` are retained: SHT40, four OutputDevices, DS3231,
+logger, LCD, controller, network manager and web server. Setup configures I2C
+with a 25 ms transaction timeout, then initializes the controller's relays OFF
+and fan ON before peripheral/file-system/network startup. SPIFFS mounts with
+`begin(false)` so a mount failure does not silently format assets.
 
-Global objects are created for the major hardware and service modules:
+The controller loads the checked `hatchai-ctrl` profile and existing turn
+metrics, starts sensor/LCD/logger/RTC support and configures an eight-second
+task watchdog. Network setup remains deferred/non-blocking.
 
-- `Sht40Sensor environmentSensor`
-- `OutputDevice bulb1Relay`
-- `OutputDevice bulb2Relay`
-- `OutputDevice fanRelay`
-- `OutputDevice turnerRelay`
-- `RealTimeClock realTimeClock`
-- `DataLogger dataLogger`
-- `LcdStatusDisplay lcdDisplay`
-- `IncubatorController incubator`
-- `NetworkManager network`
-- `HatchWebServer webServer`
-
-During `setup()`:
-
-1. Serial starts at `115200`.
-2. I2C starts using configured SDA/SCL pins.
-3. SPIFFS mounts for serving web files.
-4. `incubator.begin()` initializes RTC, logger, LCD, sensor, and relays.
-5. `network.begin()` connects to Wi-Fi or starts access point mode.
-6. `webServer.begin()` registers HTTP routes and starts the server.
-
-During `loop()`:
-
-1. The controller receives the current network status.
-2. The controller updates sensor readings, relay outputs, turner logic, and LCD.
-3. The web server handles browser/API requests.
-4. The loop yields with a short `delay(2)`.
+Each loop updates network/controller state and services HTTP. The watchdog is
+fed through `completeLoop()` only after the entire loop completes. The existing
+short 2 ms scheduler yield remains; motor and thermostat control have no blocking waits.
 
 ## 4. Main Controller
 
-Primary files:
+`IncubatorController` coordinates existing peripherals plus these small modules:
 
-- `include/IncubatorController.h`
-- `src/IncubatorController.cpp`
+- `ThermalSafety.h`: sensor qualification, unfiltered thresholds and alarm hysteresis.
+- `RelayThermostat.h`: target +/-0.3 C hysteresis, retained in-band state, minimum OFF time and safety override.
+- `DeviceProfile.h`: versioned NVS profile, verified writes and fail-closed loading.
+- `TurnSchedule.h` / `TurnCycle.h`: RTC age/due predicates and independent millis pulse deadlines.
+- `RuntimeWatchdog.h`: ESP-IDF 4/5 task watchdog API adapters.
 
-`IncubatorController` coordinates the incubator behavior. It owns the current
-control settings, latest sensor reading, turn metrics, reading history, and
-status text.
+Brief failed samples retain the last valid measurement for at most 20 seconds,
+without refreshing its timestamp or logging an invalid frame. Sensor readiness
+requires three stable valid samples. Calibration is applied before control,
+safety/history/logging/model input. Thermostat and safety use the unfiltered
+calibrated temperature. Protection runs in both modes; see [thermostat control](THERMOSTAT_CONTROL.md).
 
-Important responsibilities:
+The fan runs automatically or under a heating/sensor/thermal override; safe manual OFF is supported. Heating holds above 38.0°C until at/below 37.5°C, warns
+at 38.5°C and critically latches at 39.0°C. Critical flags persist; recovery
+requires deliberate acknowledgment with valid cool readings. Low warnings and
+abnormal-reset holds are described in [Integrated Control](INTEGRATED_CONTROL.md).
 
-- Read the SHT40 at the configured interval.
-- Keep the last valid sensor reading briefly when an SHT40 read fails.
-- Apply automatic relay control rules.
-- Apply manual relay control settings.
-- Start scheduled egg turns.
-- Stop egg turner pulses after the configured pulse duration.
-- Record and persist egg turning metrics.
-- Log valid readings to SD card.
-- Refresh the LCD display.
-- Build JSON responses for the web dashboard.
-- Run the Random Forest prediction model.
+Motor starts require an enabled schedule, valid sensor/RTC, active assigned
+batch outside lockdown, working storage/watchdog and no critical/reset hold.
+One motor runs at a time with a one-second gap. Its reservation is durably
+saved before relay ON; counters remain in their existing namespaces.
+Interrupted turns are skipped after reset, and missed history is not replayed.
 
-### Sensor Read Handling
-
-`readSensorIfDue()` reads the SHT40 only when the configured interval has
-elapsed. If the read is valid:
-
-- `_currentReading` is updated.
-- The reading is added to `ReadingHistory`.
-- The reading is written to SD card.
-- `_lastAnomaly` is set to `None`.
-
-If the read fails but the previous valid reading is not older than
-`SensorStaleAfterMs`, the controller keeps the previous valid reading and stores
-the new error in `_lastAnomaly`. This prevents the UI and controls from flicking
-to "No reading" because of a single I2C or CRC failure.
-
-If the previous reading is too old, the current reading becomes invalid.
-
-### Automatic Output Rules
-
-Automatic mode is handled by `updateAutomaticOutputs()`.
-
-If the current sensor reading is invalid:
-
-- Bulb 1 turns off.
-- Bulb 2 turns off.
-- Fan turns off.
-
-If the reading is valid:
-
-- Bulbs turn on when temperature is below target by more than 0.3 deg C.
-- Bulbs turn off when temperature is above target by more than 0.3 deg C.
-- Fan turns on when temperature is above target by more than 0.5 deg C.
-- Fan also turns on when humidity is above target by more than 5 percent.
-
-### Egg Turner Logic
-
-Egg turning can happen in two ways:
-
-- Automatically, based on `turnIntervalMinutes`.
-- Manually, through the web API endpoint `/api/turn`.
-
-When a turn starts:
-
-- The turn event is recorded.
-- Total turns and turns today are incremented.
-- Last turn timestamp is updated.
-- Actual interval is calculated if there was a previous turn.
-- The turner relay turns on.
-- `_turnerStopMs` is set so the pulse stops after `TurnerPulseMs`.
-
-Turn metrics are persisted in ESP32 Preferences under the namespace
-`hatchai-turn`.
+Targets, calibration, intervals and durations persist. Mode defaults to auto
+on reboot; manual ON requests do not persist. Legacy manual motor switches
+request bounded runs. Stop cancels a selected active/queued run in either mode.
 
 ## 5. SHT40 Sensor Driver
 
-Primary files:
-
-- `include/Sht40Sensor.h`
-- `src/Sht40Sensor.cpp`
-
-The SHT40 driver communicates directly over the shared I2C bus at address
-`0x44`. It does not require an additional sensor library.
-
-`Sht40Sensor::read()` attempts up to 3 reads. Between retries it waits 20 ms.
-Only a valid, CRC-checked measurement updates `_latest`.
-
-`Sht40Sensor::readOnce()`:
-
-1. Sends the SHT40 high-precision measurement command `0xFD`.
-2. Waits 10 ms for the measurement to complete.
-3. Reads six bytes containing temperature, temperature CRC, humidity, and
-   humidity CRC.
-4. Validates both values with the SHT40 CRC-8 algorithm.
-5. Converts the raw values to degrees Celsius and relative humidity.
-6. Clamps humidity to the physical range of 0 to 100 percent.
-7. Rejects temperatures outside the expected SHT40 operating range.
-
-Common error strings include:
-
-- `SHT40 sensor not detected`
-- `SHT40 measurement response incomplete`
-- `SHT40 temperature CRC mismatch`
-- `SHT40 humidity CRC mismatch`
-- `SHT40 reading is outside expected range`
-
-The probe uses the same configured I2C pins as the RTC and LCD: SDA on GPIO 21
-and SCL on GPIO 22. Connect the probe to 3.3 V and ground unless its specific
-module documentation explicitly provides a different supported supply range.
+`src/Sht40Sensor.cpp` uses the shared Wire bus at address 0x44. High-precision
+command 0xFD is followed by a bounded 10 ms conversion wait and six-byte read.
+Both two-byte data words must pass CRC-8 (polynomial 0x31, initial 0xFF).
+The protocol helpers convert temperature and clamp RH to 0..100% as specified by
+Sensirion. Temperatures outside the application's -40..80 C range are rejected.
+A two-second startup allowance, five-second sample interval, 2.1-second failed-read
+retry, 20-second stale expiry and three stable startup/recovery frames are retained.
+Invalid samples do not enter history or CSV. The persisted temperature offset is
+still applied by the controller; review it when replacing the sensor.
 
 ## 6. Output Devices
 
@@ -231,22 +153,13 @@ appropriate low output level.
 
 ## 7. Real-Time Clock
 
-Primary files:
-
-- `include/RealTimeClock.h`
-- `src/RealTimeClock.cpp`
-
-The `RealTimeClock` module talks to a DS3231 over I2C. It provides:
-
-- Hardware detection.
-- Lost-power detection.
-- Current date/time.
-- Full timestamp strings.
-- Short time strings.
-
-If the RTC lost power, the code sets the RTC to the firmware build time. This
-prevents completely invalid timestamps, but the time should still be checked if
-the RTC battery was removed or drained.
+`RealTimeClock` now polls DS3231 once per second with bounded I2C transactions.
+It validates response lengths, BCD, calendar fields, 24-hour encoding and OSF.
+Three good reads establish readiness. Frozen/backward/jumped clocks lose trust.
+It caches dates for logging/API/LCD instead of reading I2C on every accessor.
+No build-time fallback is written to hardware. Set actual local date/time
+through Control with turning disabled. RTC failure stops turning; valid
+temperature regulation may continue. `Calendar.h` supplies checked epoch math.
 
 ## 8. SD Card Logger
 
@@ -255,14 +168,22 @@ Primary files:
 - `include/DataLogger.h`
 - `src/DataLogger.cpp`
 
-The SD logger writes valid sensor readings to `/hatchai.csv`.
+`DataLogger` queues valid RTC-stamped readings to `/hatchai.csv` every 10 seconds.
+`RecoveryStorage.cpp` exclusively owns SD/SPI in a separate low-priority task.
+It verifies writes/readbacks, rotates logs, and validates alternating CRC recovery
+files. `ControllerRecovery.cpp`, `RecoveryState.h`, `RecoveryCodec.h` and
+`RecoveryGuard.h` integrate startup, durable motor transactions, NVS intents,
+RTC day/lockdown and persistent safety. See [SD Recovery](SD_RECOVERY.md) for
+schemas, failure policy, Arduino export and the required physical test matrix.
 
 CSV columns:
 
 ```text
-timestamp,temperature_c,humidity_percent,mode,bulb1,bulb2,fan,turner,
+timestamp,temperature_c,humidity_percent,mode,bulb1,fan,turner,
 target_temperature_c,target_humidity_percent,turn_interval_minutes,
-total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes
+total_turns,turns_today,last_turn_timestamp,actual_turn_interval_minutes,
+turner2,turn_interval2_minutes,total_turns2,turns_today2,last_turn2_timestamp,
+actual_turn_interval2_minutes
 ```
 
 Invalid sensor readings are not logged. This avoids recording fake or misleading
@@ -273,49 +194,21 @@ If an existing log file has an incompatible header, the code renames it to a
 
 ## 9. LCD Display
 
-Primary files:
-
-- `include/LcdStatusDisplay.h`
-- `src/LcdStatusDisplay.cpp`
-
-The LCD module directly drives a 20x4 I2C character LCD.
-
-On boot it shows:
-
-```text
-HatchAI Incubator
-HatchAI booting
-Sensor starting
-Prediction ready
-```
-
-During normal operation it shows:
-
-- Temperature.
-- Humidity.
-- Egg turner status.
-- Hatch prediction/date text.
-
-If there is no valid reading, temperature and humidity display placeholder
-values.
+The 20x4 LCD refreshes every two seconds: line 1 temperature/RH, line 2 Upper
+batch label, line 3 Lower batch label, line 4 estimated hatch date. For two distinct
+batches, the final line alternates Est U/Est L every six seconds using each batch's
+RTC-based incubation day. A single batch, including Both rollers, has one estimate.
+Alarms/holds retain priority on line 4. See [roller/LCD update](ROLLER_BATCH_LCD_UPDATE.md).
+Bound `/api/predict` requests also use the device's restored start timestamp.
+An invalid RTC makes the day unavailable. LCD messages are not evidence of
+actual hatching or motor motion.
 
 ## 10. Reading History
 
-Primary files:
-
-- `include/ReadingHistory.h`
-- `src/ReadingHistory.cpp`
-
-`ReadingHistory` stores up to 96 recent valid readings in memory. It builds JSON
-for the dashboard chart using multiple display windows:
-
-- `hour`: up to 12 points.
-- `day`: up to 24 points.
-- `week`: up to 32 points.
-- `month`: up to 48 points.
-
-The labels are relative to the current uptime, such as `now`, `-30s`, `-5m`, or
-`-2h`.
+`ReadingHistory` retains its 96-valid-sample RAM ring buffer. At the new
+two-second sampling interval this is about 3.2 minutes. Invalid samples are
+never inserted. The hour/day/week/month fields contain bounded recent subsets,
+not long-term archives reconstructed from SD. The existing Canvas charts remain.
 
 ## 11. Network Manager
 
@@ -328,10 +221,12 @@ Primary files:
 
 Startup behavior:
 
-1. Try saved Wi-Fi credentials from Preferences namespace `hatchai-wifi`.
-2. If saved credentials work, connect as a station.
-3. If no saved credentials exist and hardcoded Wi-Fi is configured, try it.
-4. If station connection fails, start the ESP32 access point.
+1. Start the setup AP and keep it available during station connection attempts.
+2. Queue saved credentials from Preferences namespace `hatchai-wifi`, if present.
+3. Otherwise queue configured credentials, if they are not placeholders.
+4. Advance the attempt in `network.update()` without a connection wait loop.
+   A failed boot attempt can fall back to distinct configured credentials.
+   Saved-network recovery retries wait at least 30 seconds between attempts.
 
 Default access point:
 
@@ -354,6 +249,49 @@ Wi-Fi API support includes:
 - Forget saved credentials.
 - Report current Wi-Fi status and IP address.
 
+`POST /api/wifi/connect` and its alias return immediately with `accepted: true`
+and `connecting: true` after validating and queuing the request. The main loop
+starts the station attempt after 250 ms and checks it until connected or a
+20-second deadline. It does not wait for association in the HTTP handler.
+Only a successful connection writes credentials to Preferences. A failed user
+attempt leaves previously saved credentials in place and awaits another user
+attempt. Startup and subsequent loss of a saved connection support retries.
+
+`GET /api/wifi/status` reports connected/saved/requested SSIDs, `connecting`,
+`connectionState` (`idle`, `connecting`, `connected`, `failed`), `error`
+(`network_unavailable`, `connection_failed`, or empty), `credentialsSaved`,
+signal in dBm (or `null`), current IP, and setup AP name/IP. It never returns
+a password. The UI polls this response at least five seconds after its previous
+operation finishes and pauses while hidden. The connection-failed message
+includes incorrect password as a possible cause; the status does not establish
+that every failure is an authentication error.
+
+Settings automatically scans on opening, or after an ongoing connection
+finishes. Refresh networks scans again. Scan responses are capped at 20 distinct
+SSIDs, retaining the strongest duplicate; the browser also deduplicates.
+Secured networks have lock icons. Settings has no manual SSID/password form:
+tapping an open network connects immediately, and tapping the saved network
+uses its NVS password on the ESP32 (`useSaved=true`) without returning it to
+the browser. A new secured network opens a password dialog with Connect,
+Cancel, and show/hide. Unnamed networks are omitted. Tapping the connected
+network opens its details. The information icon also expands connection
+details and Forget network; browser-saved flags never establish live status.
+
+The Wi-Fi driver uses RAM credential storage; application credentials are
+persisted only in Preferences/NVS. Browser preferences contain only SSID and
+controller address, and legacy browser Wi-Fi passwords are removed on load.
+Preferences storage alone does not enable NVS/flash encryption; encryption at
+rest is not configured by this project. HTTP and existing endpoint access-control
+limitations still apply.
+
+Forgetting clears the `hatchai-wifi` namespace, acknowledges the request, then
+disconnects and erases the station driver's credentials after a 750 ms grace
+period serviced by `network.update()`. It keeps or starts the setup AP. The user
+must rejoin `HatchAI-ESP32` and open `192.168.4.1`. A failed or missing response
+is shown as unverified; the browser does not retry a state-changing request at
+another address. New browser Wi-Fi preferences contain only the chosen SSID
+and controller address; passwords are sent to the ESP32 when connecting.
+
 ## 12. Web Server and API
 
 Primary files:
@@ -371,6 +309,7 @@ responses and static web files from SPIFFS.
 | GET | `/api/data` | Current sensor, relay, prediction, history, and status JSON |
 | POST | `/api/control` | Update auto/manual mode, relay states, targets, and turn interval |
 | POST | `/api/turn` | Trigger an egg turning pulse |
+| POST | `/api/safety` | Authenticated alarm/arming/clock/batch actions |
 | POST | `/api/predict` | Run batch-specific hatch prediction |
 | GET | `/api/account` | Read stored account username |
 | POST | `/api/account` | Save account username/password |
@@ -380,6 +319,7 @@ responses and static web files from SPIFFS.
 | GET | `/api/session/status` | Check whether a session is active |
 | GET | `/scan-wifi` | Scan Wi-Fi networks |
 | GET | `/api/wifi/scan` | Scan Wi-Fi networks |
+| GET | `/api/wifi/status` | Read connected/saved SSID, signal, IP, and setup AP details |
 | POST | `/api/wifi/connect` | Connect ESP32 to Wi-Fi |
 | POST | `/api/wifi/forget` | Remove saved Wi-Fi credentials |
 | POST | `/connect-wifi` | Alternate Wi-Fi connect route |
@@ -500,18 +440,11 @@ Page JavaScript:
 
 ## 15. Browser API Client
 
-Primary file:
-
-- `data/js/espApi.js`
-
-`HatchEspApiClient` wraps calls to the ESP32 API:
-
-- `getData()`
-- `updateControl(payload)`
-- `turnEggsNow()`
-- `predictBatch(payload)`
-
-All requests use `cache: "no-store"` to reduce stale API results.
+`data/js/espApi.js` retains URL-encoded request bodies and existing endpoints.
+All client instances share one request queue, including Settings/Wi-Fi clients.
+Timeouts begin when a queued request actually starts. Backend error messages
+reach the UI. New safety actions carry the active session token in the form body.
+No credentials/passwords are added to diagnostic responses.
 
 ## 16. Dashboard Page
 
@@ -537,7 +470,9 @@ The dashboard displays:
 - Quick summary.
 - Recent status.
 
-The dashboard polls `/api/data` every few seconds. It then:
+The dashboard waits five seconds after completing its data/prediction requests
+before polling `/api/data` again. Requests are serialized, bounded by timeouts,
+and paused while hidden. It then:
 
 1. Updates live sensor and relay text.
 2. Updates chart data from the history JSON.
@@ -546,31 +481,40 @@ The dashboard polls `/api/data` every few seconds. It then:
 5. Sends the selected batch incubation day to `/api/predict`.
 6. Displays the resulting hatch prediction.
 
+Unchanged text, batch options, and chart data are retained. Refreshing the same
+batch does not insert generic uptime predictions or calculating placeholders;
+canvas dimensions change only on actual resize. A failed data request retains
+the previous readings and marks them offline instead of inserting sample data.
+
 Completed and Failed batches are not shown in the dashboard batch selector.
 
 ## 17. Control Page
 
-Primary files:
+The Control page requires matching relay pins and `safety.version=2`.
+It shows separate Lower and Upper controls with their saved batch labels and interval
+choices. Default durations are 120 seconds and are editable for calibrated
+automatic/manual travel. It shows actual outputs separately from heating requests.
+The fan switch sends a manual request; automatic/heating/sensor/thermal overrides keep circulation ON when required.
 
-- `data/control.html`
-- `data/js/control.js`
-- `data/css/control.css`
+The Control Summary sidebar is removed. Targets and airflow share one card,
+each roller groups its duration/interval and batch label. Assignments are saved on
+Batch; component status and exceptional acknowledgments are in Settings. A sticky Save bar remains reachable on
+smaller screens. Heating demand and actual bulb state appear beside the bulb.
 
-The Control page handles:
+Save Settings first opens a review dialog with targets, both roller timings and
+assigned records. Confirm sends the reviewed snapshot; Keep editing, Escape and
+backdrop dismissal send no writes. A changed batch record/date warning explains
+that turning will be disabled. Changed/deleted records are checked again before
+saving. Mode/bulb switches apply only their own immediate setting and cannot
+save unreviewed target/timing edits. The shared modal supports keyboard focus
+containment and returns focus on cancellation.
 
-- Automatic/manual mode switching.
-- Bulb control.
-- Fan control.
-- Turner control.
-- Target temperature.
-- Target humidity.
-- Egg turn interval.
-- Manual "Turn Eggs Now" command.
-
-In automatic mode, manual relay controls are locked because the firmware decides
-the output states.
-
-In manual mode, the page sends relay state choices to `/api/control`.
+The Batch form binds records to Lower, Upper or Both physical rollers. Control
+Save applies targets and timings after review; active batch saves enable schedules.
+Active batch saves enable their schedules automatically. Lost RTC time syncs from the logged-in browser; exceptional alarm/position acknowledgments are in the Settings component modal.
+Start requests can queue behind another motor; Stop remains available in auto.
+Polling stays at least five seconds apart, pauses while hidden and preserves
+edited fields. Runtime errors/holds are explained instead of reported as success.
 
 ## 18. Batch Page
 
@@ -605,9 +549,16 @@ ESP32. The ESP32 provides sensor data and prediction calculation, while the
 browser stores the batch list and sends each batch's incubation day to the ESP32
 for prediction.
 
-The current UI supports three active incubator batch slots. Each slot card shows
+The current UI supports two active incubator batch slots. Each slot card shows
 one Active batch. Clicking an Active slot selects it for the dashboard. The View
 button opens the batch in read-only mode.
+
+The shared store exposes `ACTIVE_SLOT_COUNT = 2`. Creating or activating an
+additional batch is rejected when both slots are occupied. Non-active records
+can still be kept, and existing records are not discarded to enforce capacity.
+The initial batch list is empty; deleting all records keeps it empty. Loading
+removes only records matching all unchanged legacy sample metadata, preserving
+user-created records and sample records the user has edited.
 
 Batch statuses:
 
@@ -617,6 +568,8 @@ Batch statuses:
 - `Failed`: kept in records, not selectable on dashboard.
 
 The batch table still lists all records for review, editing, and deletion.
+
+Bound records also send their start date/active state to the device when saved or deleted. Control explicitly maps each ID to a physical roller. Full record lists remain browser-local; failed synchronization is labeled unconfirmed.
 
 ## 19. Settings and Login
 
@@ -659,14 +612,20 @@ The Settings page supports:
 
 | Data | Location |
 | --- | --- |
-| Firmware settings during runtime | ESP32 RAM |
-| Turn metrics | ESP32 Preferences namespace `hatchai-turn` |
-| Wi-Fi credentials | ESP32 Preferences namespace `hatchai-wifi` |
-| Account credentials | ESP32 Preferences namespace `hatchai` |
-| Sensor log CSV | SD card `/hatchai.csv` |
-| Web UI files | SPIFFS |
-| Batch records | Browser localStorage key `hatchai_batches` |
-| Browser session | Browser localStorage key `hatchaiActiveSession` |
+| Current reading, mode and manual requests | ESP32 RAM |
+| Targets, temperature offset, durations/intervals, bound dates/IDs, reservations, arm/critical state | Preferences `hatchai-ctrl` |
+| Turn metrics | Preferences `hatchai-turn` and `hatchai-turn2` |
+| Wi-Fi credentials / account | Existing `hatchai-wifi` / `hatchai` namespaces |
+| Valid sensor CSV | SD `/hatchai.csv` |
+| Web UI | SPIFFS |
+| Full batch records | Browser `hatchai_batches` |
+| Account/calibration notes/session | Existing browser storage keys |
+
+Bound batch Save/Delete actions synchronize its date/active state; unassigned
+records have no hardware effect. Failed/offline updates are marked unconfirmed.
+Unassigned/history browser records remain local. Missing active assigned records
+can import from verified SD/device state into free browser slots. Temperature
+offsets now affect firmware; humidity offsets/notes remain browser-only.
 
 ## 21. Upload and Deployment Notes
 
@@ -688,7 +647,7 @@ run. If both firmware and web files changed, run both commands.
 Recommended full update:
 
 ```powershell
-cd C:\Users\LENOVO\Desktop\hatchai-esp32final
+cd C:\Users\LENOVO\Desktop\HATCHAI
 C:\Users\LENOVO\.platformio\penv\Scripts\platformio.exe run --target upload
 C:\Users\LENOVO\.platformio\penv\Scripts\platformio.exe run --target uploadfs
 ```
@@ -735,9 +694,9 @@ If firmware behavior did not change:
 
 If SHT40 readings show intermittent failures:
 
-- The firmware retries each read up to 3 times.
-- The controller keeps the last valid reading for up to 20 seconds.
-- Check SDA/SCL wiring, probe power, pull-up resistors, and address `0x44`.
+- The firmware retries at the next five-second sample, without rapid retries.
+- Heating stops on a detected invalid sample; recovery requires three stable valid readings.
+- Check SDA21/SCL22, 3.3 V sensor power, common ground, I2C address and 3.3 V bus pull-ups.
 - Check `lastAnomaly` in the dashboard for the most recent SHT40 error string.
 
 If predictions are unavailable:
@@ -756,7 +715,7 @@ If SD logging is not working:
 ## 24. High-Level Flow
 
 ```text
-SHT40 sensor
+SHT40 sensor (I2C 0x44, GPIO 21/22)
   -> IncubatorController
   -> ReadingHistory
   -> SD logger

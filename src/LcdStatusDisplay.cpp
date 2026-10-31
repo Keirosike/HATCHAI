@@ -49,7 +49,8 @@ bool LcdStatusDisplay::isReady() const {
 }
 
 String LcdStatusDisplay::statusText() const {
-  return _ready ? "Ready" : "Not detected";
+  Wire.beginTransmission(_address);
+  return Wire.endTransmission()==0 ? "I2C responding" : "Not detected";
 }
 
 void LcdStatusDisplay::showBoot(const String& message) {
@@ -65,28 +66,21 @@ void LcdStatusDisplay::showBoot(const String& message) {
 
 void LcdStatusDisplay::showStatus(
   const SensorReading& reading,
-  bool turnerOn,
-  const String& hatchDateText
+  const String& upperBatch,
+  const String& lowerBatch,
+  const String& hatchDateText,
+  const String& alarmText
 ) {
   if (!_ready) {
     return;
   }
 
-  String line0 = "Temp: --.-C";
-  String line1 = "Hum : --%";
-
-  if (reading.valid) {
-    line0 = "Temp: " + String(reading.temperatureC, 1) + "C";
-    line1 = "Hum : " + String(reading.humidityPercent, 0) + "%";
-  }
-
-  const String line2 = turnerOn ? "Egg Turn: ON" : "Egg Turn: OFF";
-  const String line3 = hatchDateText.length() > 0 ? hatchDateText : "Hatch: waiting";
-
-  printLine(0, line0);
-  printLine(1, line1);
-  printLine(2, line2);
-  printLine(3, line3);
+  String readings="T:--.-C RH:--%";
+  if (reading.valid) readings="T:"+String(reading.temperatureC,1)+"C RH:"+String(reading.humidityPercent,0)+"%";
+  printLine(0,readings);
+  printLine(1,upperBatch);
+  printLine(2,lowerBatch);
+  printLine(3,alarmText.length() ? alarmText : hatchDateText);
 }
 
 void LcdStatusDisplay::send(uint8_t value, uint8_t mode) {

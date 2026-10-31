@@ -9,6 +9,7 @@ public:
   void begin();
   void set(bool on);
   bool isOn() const;
+  uint8_t pin() const;
   const char* name() const;
 
 private:

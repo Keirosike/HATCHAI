@@ -18,6 +18,7 @@ private:
   void handleApiControl();
   void handleApiTurn();
   void handleApiPredict();
+  void handleApiSafety();
   void handleAccountGet();
   void handleAccountSave();
   void handleSessionStart();

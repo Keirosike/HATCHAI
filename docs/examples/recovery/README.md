@@ -1,0 +1,1 @@
+Synthetic schema examples, not device recordings. Do not copy these onto a live card: IDs and timestamps are fictional. CRC is computed over compact insertion-ordered JSON with crc32 removed. RTC epoch integers encode the DS3231 local calendar, without a timezone conversion.

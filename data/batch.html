@@ -90,7 +90,7 @@
           <p class="subtext">Three separate batch positions can be monitored together</p>
         </div>
 
-        <span class="status-pill status-ok" id="slotCountBadge">0 / 3 Running</span>
+        <span class="status-pill status-ok" id="slotCountBadge">0 / 2 Running</span>
       </div>
 
       <div class="batch-slots" id="batchSlots"></div>
@@ -116,6 +116,10 @@
           <li>
             <span>Egg count</span>
             <strong id="summaryCount">0 eggs</strong>
+          </li>
+          <li>
+            <span>Completed timed turns <small>(recorded since this update)</small></span>
+            <strong id="summaryTurns" aria-live="polite">No batch selected</strong>
           </li>
           <li>
             <span>Egg laid date</span>
@@ -209,6 +213,11 @@
         <span class="status-pill status-ok" id="formStatus">Ready</span>
       </div>
 
+      <div class="form-actions" id="batchRecordActions" hidden>
+          <button class="btn btn-soft" type="button" id="editBatchRecordBtn">Edit</button>
+          <button class="btn btn-danger" type="button" id="deleteBatchRecordBtn">Delete</button>
+      </div>
+
       <form class="batch-form-grid" id="batchForm" novalidate>
         <input type="hidden" id="batchId">
 
@@ -249,15 +258,38 @@
           <label for="startDate">Incubation Start Date</label>
           <input type="date" id="startDate" required>
         </div>
+        <div class="field">
+          <label for="startTime">Incubation Start Time</label>
+          <input type="time" id="startTime" step="1" value="00:00:00" required>
+        </div>
+        <div class="field">
+          <label for="batchRoller">Roller</label>
+          <select id="batchRoller" aria-describedby="batchRollerHint">
+            <option value="0">Choose a roller</option>
+            <option value="1">Lower roller</option>
+            <option value="2">Upper roller</option>
+            <option value="3">Both rollers</option>
+          </select>
+          <small id="batchRollerHint">One active batch per roller. Both reserves the lower and upper rollers.</small>
+        </div>
+        <div class="field">
+          <label for="turningEnd">Egg turning ends</label>
+          <input type="datetime-local" id="turningEnd" step="1" aria-describedby="turningEndHint" required>
+          <small id="turningEndHint">Chicken turning stops by the start of day 18. Choose an earlier end if needed.</small>
+        </div>
+        <div class="field">
+          <label for="durationDays">Configured Duration (days)</label>
+          <input type="number" id="durationDays" min="19" max="35" step="1" value="21" required>
+        </div>
 
         <div class="field">
           <label for="targetTemp">Target Temperature</label>
-          <input type="text" id="targetTemp" placeholder="37.8°C">
+          <input type="text" id="targetTemp" placeholder="37.5°C">
         </div>
 
         <div class="field">
           <label for="targetHumidity">Target Humidity</label>
-          <input type="text" id="targetHumidity" placeholder="58%">
+          <input type="text" id="targetHumidity" placeholder="55%">
         </div>
 
         <div class="field">
@@ -318,11 +350,11 @@
 
   <script src="js/app.js?v=20260728b"></script>
   <script src="js/storage.js?v=20260728b"></script>
-  <script src="js/authSession.js?v=20260728b"></script>
-  <script src="js/batchStore.js?v=20260728b"></script>
-  <script src="js/espApi.js?v=20260728b"></script>
+  <script src="js/authSession.js?v=20261022-rollers"></script>
+  <script src="js/batchStore.js?v=20261022-nvs-prediction"></script>
+  <script src="js/espApi.js?v=20261022-rollers"></script>
   <script src="js/modal.js?v=20260728b"></script>
   <script src="js/toastNotification.js?v=20260728b"></script>
-  <script src="js/batch.js?v=20260728b"></script>
+  <script src="js/batch.js?v=20261022-completed-turns"></script>
 </body>
 </html>

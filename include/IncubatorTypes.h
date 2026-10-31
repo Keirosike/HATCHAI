@@ -14,12 +14,16 @@ struct SensorReading {
 struct ControlSettings {
   bool autoMode = true;
   bool heaterOn = false;
-  bool bulb2On = false;
-  bool fanOn = false;
+  bool fanOn = true;
   bool turnerOn = false;
+  bool turner2On = false;
   float targetTemperatureC = HatchConfig::DefaultTargetTemperatureC;
   float targetHumidityPercent = HatchConfig::DefaultTargetHumidityPercent;
   uint16_t turnIntervalMinutes = HatchConfig::DefaultTurnIntervalMinutes;
+  uint16_t turnInterval2Minutes = HatchConfig::DefaultTurnIntervalMinutes;
+  uint16_t turnDurationSeconds = HatchConfig::TurnerPulseMs / 1000;
+  uint16_t turnDuration2Seconds = HatchConfig::TurnerPulseMs / 1000;
+  float temperatureOffsetC = 0;
 };
 
 struct EggTurningMetrics {

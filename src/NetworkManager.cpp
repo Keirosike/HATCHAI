@@ -2,31 +2,134 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include "Config.h"
 #include "JsonBuilder.h"
 
 void NetworkManager::begin() {
+  // Preferences is the credential store; keep the driver's copy in RAM.
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+  startAccessPoint();
   Preferences preferences;
   preferences.begin("hatchai-wifi", true);
   const String savedSsid = preferences.getString("ssid", "");
+  _savedSsid = savedSsid;
   const String savedPassword = preferences.getString("password", "");
   preferences.end();
 
-  if (savedSsid.length() > 0 && connectStation(savedSsid, savedPassword, 15000)) {
+  if (savedSsid.length() > 0) {
+    _bootFallbackPending = shouldUseStationMode() && savedSsid != HatchConfig::WifiSsid;
+    queueConnection(savedSsid, savedPassword, false);
     return;
   }
 
-  if (!shouldUseStationMode()) {
-    startAccessPoint();
+  if (shouldUseStationMode()) {
+    queueConnection(HatchConfig::WifiSsid, HatchConfig::WifiPassword, false);
+  }
+}
+
+void NetworkManager::update() {
+  const uint32_t now = millis();
+  if (_forgetPending) {
+    if (now - _forgetRequestedMs < HatchConfig::WifiForgetGraceMs) return;
+    _forgetPending = false;
+    _connectionState = ConnectionState::Idle;
+    _connectionSsid = "";
+    _connectionPassword = "";
+    _connectionError = "";
+    _retrySaved = false;
+    _bootFallbackPending = false;
+    _credentialsSaved = false;
+    WiFi.disconnect(false, true);
+    if (!_accessPointStarted) startAccessPoint();
     return;
   }
 
-  if (connectStation(HatchConfig::WifiSsid, HatchConfig::WifiPassword, 15000)) {
+  if (_connectionState == ConnectionState::Queued) {
+    if (now - _connectionQueuedMs < HatchConfig::WifiConnectStartDelayMs) return;
+    if (WiFi.scanComplete() == WIFI_SCAN_RUNNING) esp_wifi_scan_stop();
+    WiFi.scanDelete();
+    _scanStartedMs = 0;
+    WiFi.disconnect(false);
+    _connectionState = ConnectionState::Disconnecting;
+    _connectionStartedMs = now;
     return;
   }
 
-  Serial.println("Wi-Fi connection failed. Starting access point instead.");
-  startAccessPoint();
+  const wl_status_t status = WiFi.status();
+  if (_connectionState == ConnectionState::Disconnecting) {
+    // Wait for the old station's event before accepting a same-SSID success.
+    if (status == WL_CONNECTED) {
+      if (now - _connectionStartedMs >= HatchConfig::WifiConnectTimeoutMs) failConnection("connection_failed");
+      return;
+    }
+    _connectionState = ConnectionState::Connecting;
+    WiFi.begin(_connectionSsid.c_str(), _connectionPassword.c_str());
+    return;
+  }
+  if (_connectionState == ConnectionState::Connecting) {
+    if (status == WL_CONNECTED && WiFi.SSID() == _connectionSsid) {
+      _credentialsSaved = _persistOnConnect ? saveConnectedCredentials() : _savedSsid == _connectionSsid;
+      _connectionPassword = "";
+      _connectionState = ConnectionState::Connected;
+      _bootFallbackPending = false;
+      _retrySaved = _credentialsSaved;
+      startMdns();
+      Serial.println("HatchAI station connected");
+      return;
+    }
+    const uint32_t elapsed = now - _connectionStartedMs;
+    if (elapsed >= HatchConfig::WifiConnectSettleMs && status == WL_NO_SSID_AVAIL) {
+      failConnection("network_unavailable");
+    } else if ((elapsed >= HatchConfig::WifiConnectSettleMs && status == WL_CONNECT_FAILED) ||
+               elapsed >= HatchConfig::WifiConnectTimeoutMs) {
+      failConnection("connection_failed");
+    }
+    return;
+  }
+
+  if (_connectionState == ConnectionState::Connected && status != WL_CONNECTED) {
+    failConnection("network_unavailable");
+  }
+  if (_connectionState == ConnectionState::Failed && _bootFallbackPending) {
+    _bootFallbackPending = false;
+    queueConnection(HatchConfig::WifiSsid, HatchConfig::WifiPassword, false);
+    return;
+  }
+  if (_retrySaved && _savedSsid.length() > 0 && status != WL_CONNECTED &&
+      now - _lastReconnectAttemptMs >= HatchConfig::WifiReconnectIntervalMs) {
+    Preferences preferences;
+    if (preferences.begin("hatchai-wifi", true)) {
+      const String password = preferences.getString("password", "");
+      preferences.end();
+      queueConnection(_savedSsid, password, false);
+    } else {
+      _lastReconnectAttemptMs = now;
+    }
+  }
+}
+
+String NetworkManager::statusJson() const {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  const bool accessPoint = _accessPointStarted;
+  String json;
+  json.reserve(560);
+  json = "{\"connected\":" + HatchJson::boolValue(connected);
+  json += ",\"ssid\":" + HatchJson::quote(connected ? WiFi.SSID() : String(""));
+  json += ",\"savedSsid\":" + HatchJson::quote(_savedSsid);
+  json += ",\"connecting\":" + HatchJson::boolValue(isConnecting());
+  json += ",\"connectionState\":" + HatchJson::quote(connectionStateText());
+  json += ",\"requestedSsid\":" + HatchJson::quote(_connectionSsid);
+  json += ",\"error\":" + HatchJson::quote(_connectionError);
+  json += ",\"credentialsSaved\":" + HatchJson::boolValue(_credentialsSaved);
+  json += ",\"status\":" + HatchJson::quote(statusText());
+  json += ",\"ipAddress\":" + HatchJson::quote(ipAddress());
+  json += ",\"rssi\":" + (connected ? String(WiFi.RSSI()) : String("null"));
+  json += ",\"apSsid\":" + HatchJson::quote(accessPoint ? WiFi.softAPSSID() : String(""));
+  json += ",\"apIpAddress\":" + HatchJson::quote(accessPoint ? WiFi.softAPIP().toString() : String(""));
+  json += "}";
+  return json;
 }
 
 String NetworkManager::statusText() const {
@@ -34,7 +137,7 @@ String NetworkManager::statusText() const {
     return "Online";
   }
 
-  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
+  if (_accessPointStarted) {
     return "Access Point";
   }
 
@@ -46,7 +149,7 @@ String NetworkManager::ipAddress() const {
     return WiFi.localIP().toString();
   }
 
-  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
+  if (_accessPointStarted) {
     return WiFi.softAPIP().toString();
   }
 
@@ -54,6 +157,9 @@ String NetworkManager::ipAddress() const {
 }
 
 String NetworkManager::scanNetworksJson() {
+  if (isConnecting() || _forgetPending) {
+    return "{\"scanning\":false,\"message\":\"Wait for the Wi-Fi connection attempt to finish\"}";
+  }
   WiFi.mode(WIFI_AP_STA);
 
   int networkCount = WiFi.scanComplete();
@@ -70,7 +176,6 @@ String NetworkManager::scanNetworksJson() {
   }
 
   WiFi.scanDelete();
-  delay(50);
   WiFi.scanNetworks(true, true);
   _scanStartedMs = millis();
 
@@ -84,14 +189,25 @@ String NetworkManager::scanResultsJson(int networkCount) {
 
   String json = "[";
 
-  for (int i = 0; i < networkCount; i++) {
-    if (i > 0) {
+  int emitted = 0;
+  for (int i = 0; i < networkCount && emitted < HatchConfig::WifiScanResultLimit; i++) {
+    const String ssid = WiFi.SSID(i);
+    bool duplicate = false;
+    for (int previous = 0; previous < networkCount; previous++) {
+      if (WiFi.SSID(previous) == ssid && (WiFi.RSSI(previous) > WiFi.RSSI(i) ||
+          (WiFi.RSSI(previous) == WiFi.RSSI(i) && previous < i))) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) continue;
+    if (emitted++ > 0) {
       json += ",";
     }
 
     json += "{";
     json += "\"ssid\":";
-    json += HatchJson::quote(WiFi.SSID(i));
+    json += HatchJson::quote(ssid);
     json += ",";
     json += "\"rssi\":";
     json += String(WiFi.RSSI(i));
@@ -105,54 +221,52 @@ String NetworkManager::scanResultsJson(int networkCount) {
   return json;
 }
 
-String NetworkManager::connectToWifi(const String& ssid, const String& password) {
-  if (ssid.length() == 0) {
-    return "{\"connected\":false,\"message\":\"SSID is required\"}";
+String NetworkManager::connectToWifi(const String& ssid, const String& password, bool useSaved) {
+  if (_forgetPending || isConnecting()) {
+    return "{\"accepted\":false,\"connected\":false,\"message\":\"Another Wi-Fi operation is in progress\"}";
+  }
+  if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 64) {
+    return "{\"accepted\":false,\"connected\":false,\"message\":\"SSID must be 1-32 bytes and password at most 64 bytes\"}";
   }
 
-  WiFi.scanDelete();
-  _scanStartedMs = 0;
-
-  const bool connected = connectStation(ssid, password, 20000);
-
-  if (connected) {
+  String connectionPassword = password;
+  if (useSaved) {
     Preferences preferences;
-    preferences.begin("hatchai-wifi", false);
-    preferences.putString("ssid", ssid);
-    preferences.putString("password", password);
+    if (!preferences.begin("hatchai-wifi", true)) {
+      return "{\"accepted\":false,\"connected\":false,\"message\":\"Saved network is unavailable\"}";
+    }
+    const bool matches = preferences.getString("ssid", "") == ssid && preferences.isKey("password");
+    if (matches) connectionPassword = preferences.getString("password", "");
     preferences.end();
+    if (!matches) {
+      return "{\"accepted\":false,\"connected\":false,\"message\":\"This network has no saved credentials\"}";
+    }
   }
-
-  String json = "{";
-  json += "\"connected\":";
-  json += HatchJson::boolValue(connected);
-  json += ",";
-  json += "\"ssid\":";
-  json += HatchJson::quote(ssid);
-  json += ",";
-  json += "\"status\":";
-  json += HatchJson::quote(statusText());
-  json += ",";
-  json += "\"ipAddress\":";
-  json += HatchJson::quote(ipAddress());
-  json += ",";
-  json += "\"message\":";
-  json += HatchJson::quote(connected ? "Connected" : "Connection failed");
-  json += "}";
-
+  _bootFallbackPending = false;
+  queueConnection(ssid, connectionPassword, !useSaved);
+  String json = statusJson();
+  json.remove(json.length() - 1);
+  json += ",\"accepted\":true}";
   return json;
 }
 
 String NetworkManager::forgetWifi() {
   Preferences preferences;
-  preferences.begin("hatchai-wifi", false);
-  preferences.remove("ssid");
-  preferences.remove("password");
+  if (!preferences.begin("hatchai-wifi", false)) {
+    return "{\"forgotten\":false,\"message\":\"Could not open saved Wi-Fi settings\"}";
+  }
+  const bool cleared = preferences.clear();
   preferences.end();
 
-  WiFi.disconnect(false);
+  if (!cleared) {
+    return "{\"forgotten\":false,\"message\":\"Could not remove saved Wi-Fi credentials\"}";
+  }
 
-  return "{\"forgotten\":true,\"message\":\"Saved Wi-Fi credentials removed\"}";
+  _savedSsid = "";
+  // Allow the HTTP acknowledgement to leave before dropping the station connection.
+  _forgetRequestedMs = millis();
+  _forgetPending = true;
+  return "{\"forgotten\":true,\"message\":\"Saved Wi-Fi credentials removed; setup mode is starting\"}";
 }
 
 bool NetworkManager::shouldUseStationMode() const {
@@ -161,48 +275,66 @@ bool NetworkManager::shouldUseStationMode() const {
   return ssid.length() > 0 && !ssid.startsWith("YOUR_");
 }
 
-bool NetworkManager::connectStation(
-  const String& ssid,
-  const String& password,
-  uint32_t timeoutMs
-) {
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid.c_str(), password.c_str());
-  _lastSsid = ssid;
+bool NetworkManager::isConnecting() const {
+  return _connectionState == ConnectionState::Queued || _connectionState == ConnectionState::Disconnecting ||
+    _connectionState == ConnectionState::Connecting;
+}
 
-  Serial.print("Connecting to Wi-Fi");
+const char* NetworkManager::connectionStateText() const {
+  if (isConnecting()) return "connecting";
+  if (_connectionState == ConnectionState::Connected) return "connected";
+  if (_connectionState == ConnectionState::Failed) return "failed";
+  return "idle";
+}
 
-  const uint32_t started = millis();
+void NetworkManager::queueConnection(const String& ssid, const String& password, bool persist) {
+  _connectionSsid = ssid;
+  _connectionPassword = password;
+  _persistOnConnect = persist;
+  _credentialsSaved = false;
+  _retrySaved = !persist && _savedSsid.length() > 0;
+  _connectionError = "";
+  _connectionState = ConnectionState::Queued;
+  _connectionQueuedMs = millis();
+  _lastReconnectAttemptMs = _connectionQueuedMs;
+}
 
-  while (WiFi.status() != WL_CONNECTED && millis() - started < timeoutMs) {
-    delay(250);
-    Serial.print(".");
-  }
-
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    startMdns();
-
-    Serial.print("HatchAI online at http://");
-    Serial.println(WiFi.localIP());
-    Serial.println("mDNS name: http://hatchai.local");
-    return true;
-  }
-
+void NetworkManager::failConnection(const char* error) {
   WiFi.disconnect(false);
-  return false;
+  _connectionState = ConnectionState::Failed;
+  _connectionError = error;
+  _connectionPassword = "";
+  _lastReconnectAttemptMs = millis();
+}
+
+bool NetworkManager::saveConnectedCredentials() {
+  Preferences preferences;
+  if (!preferences.begin("hatchai-wifi", false)) return false;
+  preferences.putString("ssid", _connectionSsid);
+  preferences.putString("password", _connectionPassword);
+  _savedSsid = preferences.getString("ssid", "");
+  const bool saved = _savedSsid == _connectionSsid && preferences.isKey("password") &&
+    preferences.getString("password", "") == _connectionPassword;
+  preferences.end();
+  return saved;
 }
 
 void NetworkManager::startMdns() {
+  // AP and station share one responder; adding the same service twice fails.
+  if (_mdnsStarted) return;
   if (MDNS.begin("hatchai")) {
-    MDNS.addService("http", "tcp", HatchConfig::WebServerPort);
+    _mdnsStarted = MDNS.addService("http", "tcp", HatchConfig::WebServerPort);
+    if (!_mdnsStarted) MDNS.end();
   }
 }
 
 void NetworkManager::startAccessPoint() {
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(HatchConfig::AccessPointSsid, HatchConfig::AccessPointPassword);
+  _accessPointStarted = WiFi.softAP(HatchConfig::AccessPointSsid, HatchConfig::AccessPointPassword);
+  if (!_accessPointStarted) {
+    Serial.println("HatchAI access point could not start");
+    return;
+  }
   startMdns();
 
   Serial.print("HatchAI access point started: ");

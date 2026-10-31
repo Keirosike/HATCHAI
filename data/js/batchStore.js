@@ -1,6 +1,7 @@
 const HatchBatchStore = (() => {
   const STORAGE_KEY = "hatchai_batches";
   const CHICKEN_INCUBATION_DAYS = 21;
+  const ACTIVE_SLOT_COUNT = 2;
   const BATCH_NAME_PREFIX = "Chicken Batch ";
   const BATCH_LABEL_PREFIX = "BATCH-";
   const BATCH_LABEL_MAX_LENGTH = 30;
@@ -15,7 +16,7 @@ const HatchBatchStore = (() => {
   }
 
   function todayIso() {
-    return new Date().toISOString().slice(0, 10);
+    return dateToIso(new Date());
   }
 
   function dateToIso(date) {
@@ -46,10 +47,10 @@ const HatchBatchStore = (() => {
     return label;
   }
 
-  function getDefaultBatches() {
-    return [
+  // Match only unchanged records created by the old sample-data initializer.
+  function isLegacyDemoBatch(batch) {
+    const demos = [
       {
-        id: createId(),
         label: "BATCH-001",
         name: "Chicken Batch 001",
         type: "Chicken",
@@ -60,10 +61,8 @@ const HatchBatchStore = (() => {
         targetHumidity: "58%",
         status: "Active",
         notes: "Check candling status on Day 14. Maintain stable humidity and automatic egg turning.",
-        selected: true
       },
       {
-        id: createId(),
         label: "BATCH-002",
         name: "Chicken Batch 002",
         type: "Chicken",
@@ -74,11 +73,17 @@ const HatchBatchStore = (() => {
         targetHumidity: "58%",
         status: "Completed",
         notes: "Previous completed batch.",
-        selected: false
       }
     ];
+    return demos.some(demo => Object.entries(demo).every(([key, value]) => batch[key] === value));
   }
 
+  function defaultTurningEnd(batch) {
+    const parts=String(batch.startDate || '').split('-').map(Number),time=String(batch.startTime || '00:00:00').split(':').map(Number);
+    if(parts.length!==3) return '';
+    const ms=Date.UTC(parts[0],parts[1]-1,parts[2],time[0]||0,time[1]||0,time[2]||0)+17*86400000;
+    return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0,19) : '';
+  }
   function normalizeBatch(batch) {
     return {
       id: batch.id || createId(),
@@ -87,9 +92,15 @@ const HatchBatchStore = (() => {
       type: "Chicken",
       count: Number(batch.count) || 0,
       laidDate: batch.laidDate || batch.layDate || "",
-      startDate: batch.startDate || todayIso(),
-      targetTemp: batch.targetTemp || "37.8\u00B0C",
-      targetHumidity: batch.targetHumidity || "58%",
+      startDate: batch.startDate || "",
+      startTime: /^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(batch.startTime) ? batch.startTime : "00:00:00",
+      durationDays: Number.isInteger(batch.durationDays) && batch.durationDays >= 19 && batch.durationDays <= 35 ? batch.durationDays : 21,
+      roller: [1,2,3].includes(Number(batch.roller)) ? Number(batch.roller) : 0,
+      turningEnd: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(batch.turningEnd || '') ? batch.turningEnd : '',
+      recovered: Boolean(batch.recovered),
+      deviceBound: Boolean(batch.deviceBound),
+      targetTemp: batch.targetTemp || "37.5\u00B0C",
+      targetHumidity: batch.targetHumidity || "55%",
       status: batch.status || "Active",
       notes: batch.notes || "",
       selected: Boolean(batch.selected)
@@ -126,7 +137,7 @@ const HatchBatchStore = (() => {
   function normalizeBatches(records) {
     let selectedFound = false;
     const batches = Array.isArray(records)
-      ? records.map(normalizeBatch).filter(batch => batch.count > 0)
+      ? records.map(normalizeBatch).filter(batch => batch.count > 0 || batch.recovered)
       : [];
 
     ensureBatchLabels(batches);
@@ -200,20 +211,56 @@ const HatchBatchStore = (() => {
 
   function loadBatches() {
     const saved = loadData(STORAGE_KEY);
-    const batches = normalizeBatches(saved);
-
-    if (batches.length > 0) {
-      saveBatches(batches);
-      return batches;
-    }
-
-    const defaults = getDefaultBatches();
-    saveBatches(defaults);
-    return defaults;
+    const normalized = normalizeBatches(saved);
+    const batches = normalizeBatches(normalized.filter(batch => !isLegacyDemoBatch(batch)));
+    saveBatches(batches);
+    return batches;
   }
 
   function saveBatches(batches) {
     saveData(STORAGE_KEY, normalizeBatches(batches));
+  }
+
+  function importDeviceBatches(data = {}) {
+    if (data.recovery?.version !== 1 || !data.recovery.ready || !Array.isArray(data.safety?.batches)) return;
+    const records = loadBatches(); let changed = false;
+    for (const physical of data.safety.batches) {
+      const placement=data.safety.batches.filter(p=>p.batchId===physical.batchId).reduce((mask,p)=>mask|(1<<(p.motor-1)),0);
+      const existing = records.find(b => b.id === physical.batchId);
+      const turningEnd=physical.turningEndEpoch ? new Date(physical.turningEndEpoch*1000).toISOString().slice(0,19) : '';
+      if(existing && !existing.turningEnd && turningEnd) {existing.turningEnd=turningEnd;changed=true;}
+      if (existing && !existing.roller && [1,2].includes(physical.motor)) { existing.roller=placement; changed=true; }
+      if (existing && !existing.deviceBound) { existing.deviceBound = true; changed = true; }
+      if (existing && physical.batchStatus === "Completed" && existing.status === "Active" && physical.startEpoch) {
+        const savedStart = new Date(physical.startEpoch * 1000).toISOString();
+        if (`${existing.startDate}T${existing.startTime}` === savedStart.slice(0,19)) {
+          existing.status = "Completed"; existing.selected = false; changed = true;
+        }
+      }
+      // Import only missing active device records. Owned records and deleted/
+      // inactive records stay untouched; no sample batch or invented egg count.
+      if (!physical.batchId || !physical.active || records.some(b => b.id === physical.batchId) ||
+          getActiveBatches(records).length >= ACTIVE_SLOT_COUNT || !Number.isInteger(physical.startEpoch) || physical.startEpoch < 1704067200) continue;
+      const start = new Date(physical.startEpoch * 1000).toISOString();
+      records.push(normalizeBatch({ id: physical.batchId, label: physical.label || getNextBatchLabel(records),
+        name: physical.name || `Recovered batch ${physical.motor}`, count: physical.eggCount || 0,
+        startDate: start.slice(0,10), startTime: start.slice(11,19), durationDays: physical.durationDays,
+        status: "Active", roller: placement, turningEnd, recovered: true, deviceBound: true, laidDate: "", notes: "Restored from the incubator SD recovery state. Verify any missing egg details." }));
+      changed = true;
+    }
+    records.forEach(record => {
+      if (record.deviceBound && !data.safety.batches.some(p => p.batchId === record.id)) { record.deviceBound = false; changed = true; }
+    });
+    if (changed) saveBatches(records);
+  }
+
+  function getDeviceBatchDay(batch, data = {}) {
+    const physical=data.safety?.batches?.find(p => p.batchId===batch.id);
+    if (!batch.deviceBound && (!physical || data.recovery?.version!==1)) return null;
+    if (!physical || data.safety?.storageReady===false || !data.safety?.rtcTrusted ||
+        !Number.isInteger(physical.incubationDay) || physical.incubationDay<1)
+      return {valid:false,day:0,rawDay:0,message:"Incubation day unavailable — verify RTC and the saved batch start time"};
+    return {valid:true,day:Math.min(physical.incubationDay,CHICKEN_INCUBATION_DAYS),rawDay:physical.incubationDay,message:""};
   }
 
   function formatDate(dateInput) {
@@ -241,6 +288,7 @@ const HatchBatchStore = (() => {
     if (rtcDate && data.clockStatus !== "Not detected") {
       return {
         dateIso: rtcDate[1],
+        dateTime: String(data.rtcTime).replace(" ", "T"),
         source: "rtc",
         rtcAvailable: true
       };
@@ -248,16 +296,17 @@ const HatchBatchStore = (() => {
 
     return {
       dateIso: todayIso(),
+      dateTime: `${dateToIso(new Date())}T${new Date().toTimeString().slice(0,8)}`,
       source: "fallback",
       rtcAvailable: false
     };
   }
 
   function getBatchIncubationDay(batch, currentDateIso = todayIso()) {
-    const started = parseIsoDate(batch.startDate);
-    const current = parseIsoDate(currentDateIso);
+    const started = new Date(`${batch.startDate}T${batch.startTime || "00:00:00"}`);
+    const current = new Date(currentDateIso.includes("T") ? currentDateIso : `${currentDateIso}T00:00:00`);
 
-    if (!started || !current || current < started) {
+    if (Number.isNaN(started.getTime()) || Number.isNaN(current.getTime()) || current < started) {
       return {
         valid: false,
         day: 0,
@@ -305,37 +354,36 @@ const HatchBatchStore = (() => {
     return addDaysIso(currentDateIso, Number(daysRemaining));
   }
 
-  function calculateBatch(batch) {
-    const started = new Date(batch.startDate + "T00:00:00");
-    const today = new Date();
-
-    today.setHours(0, 0, 0, 0);
+  function calculateBatch(batch, referenceDateTime) {
+    const duration = batch.durationDays || CHICKEN_INCUBATION_DAYS;
+    const started = new Date(`${batch.startDate}T${batch.startTime || "00:00:00"}`);
+    const today = referenceDateTime ? new Date(referenceDateTime) : new Date();
 
     if (Number.isNaN(started.getTime())) {
       return {
         hatchDate: "Not set",
         progress: 0,
-        dayText: "Day 0 of " + CHICKEN_INCUBATION_DAYS,
+        dayText: "Incubation day unavailable",
         daysRemaining: "Start date missing"
       };
     }
 
     const hatch = new Date(started);
-    hatch.setDate(started.getDate() + CHICKEN_INCUBATION_DAYS);
+    hatch.setDate(started.getDate() + duration);
 
     const elapsedMs = today - started;
     const elapsedDays = Math.max(0, Math.floor(elapsedMs / 86400000));
-    const currentDay = Math.min(elapsedDays + 1, CHICKEN_INCUBATION_DAYS);
+    const currentDay = Math.min(elapsedDays + 1, duration);
     const progress = batch.status === "Completed"
       ? 100
-      : Math.min(100, Math.round((elapsedDays / CHICKEN_INCUBATION_DAYS) * 100));
-    const remaining = Math.max(0, CHICKEN_INCUBATION_DAYS - elapsedDays);
+      : Math.min(100, Math.round((elapsedDays / duration) * 100));
+    const remaining = Math.max(0, duration - elapsedDays);
 
     return {
       hatchDate: formatDate(dateToIso(hatch)),
       progress,
       currentIncubationDay: currentDay,
-      dayText: "Day " + currentDay + " of " + CHICKEN_INCUBATION_DAYS,
+      dayText: "Day " + currentDay + " of " + duration,
       daysRemaining: remaining === 0 ? "Hatch due" : remaining + " days left"
     };
   }
@@ -363,6 +411,7 @@ const HatchBatchStore = (() => {
   return {
     STORAGE_KEY,
     CHICKEN_INCUBATION_DAYS,
+    ACTIVE_SLOT_COUNT,
     BATCH_LABEL_MAX_LENGTH,
     createId,
     todayIso,
@@ -372,9 +421,12 @@ const HatchBatchStore = (() => {
     getBatchLabelError,
     loadBatches,
     saveBatches,
+    defaultTurningEnd,
+    importDeviceBatches,
     formatDate,
     getCurrentDateContext,
     getBatchIncubationDay,
+    getDeviceBatchDay,
     hasValidSensorData,
     getFallbackPredictedHatchDate,
     calculateBatch,
