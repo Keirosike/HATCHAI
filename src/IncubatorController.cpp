@@ -578,6 +578,8 @@ void IncubatorController::updateAutomaticOutputs(uint32_t nowMs) {
 void IncubatorController::updateTurnerPulse(uint32_t nowMs) {
   for (uint8_t index = 0; index < 2; ++index) {
     if(!_turnCycles[index].active) continue;
+    // A peer's completion saves NVS data; refresh time before this roller's checks.
+    nowMs=millis();
     if(!(_manualMotor[index] ? manualMotorAllowed(index,nowMs) : motorAllowed(index,nowMs))) stopTurnCycle(index+1);
     else if(_turnCycles[index].pulseExpired(nowMs,_turnCycles[index].pulseDurationMs)) {
       if (_manualMotor[index]) finishManualMotor(index);
@@ -633,8 +635,17 @@ void IncubatorController::refreshDisplayIfDue(uint32_t nowMs) {
     const auto& b=_recoveryState.batches[i];
     return strcmp(b.id,p.batchId[i])==0 && b.start==p.start[i] && b.label[0] ? String(b.label) : String(p.batchId[i]);
   };
-  const String lowerText="Lower: "+(hasLower ? label(0) : String("No batch"));
-  const String upperText="Upper: "+(hasUpper ? label(1) : String("No batch"));
+  const auto rollerLine=[this,&p,&label](uint8_t i,bool assigned) -> String {
+    const String prefix=i ? "Upper: " : "Lower: ";
+    if(!assigned) return prefix+"No batch";
+    const int day=_clock.isReady() ? HatchRecovery::dayFromStart(p.start[i],_clock.epoch()) : 0;
+    const String suffix=day>0 ? String(" D")+String(day) : String(" D--");
+    const int space=int(HatchConfig::LcdColumns)-int(prefix.length())-int(suffix.length());
+    const String batchLabel=label(i);
+    return prefix+batchLabel.substring(0,space>0 ? space : 0)+suffix;
+  };
+  const String lowerText=rollerLine(0,hasLower);
+  const String upperText=rollerLine(1,hasUpper);
   String hatch="Est: No batch";
   const int selected=HatchDisplay::predictionMotor(hasLower,hasUpper,shared,nowMs/6000UL);
   if (selected>=0) {
@@ -1127,9 +1138,10 @@ bool IncubatorController::motorAllowed(uint8_t i, uint32_t nowMs) const {
   const DeviceProfile& p = _profile.value;
   const uint32_t epoch = _clock.epoch();
   const auto storage=_logger.storage().status();
+  const uint32_t storageObservedMs=millis();
   return systemReady() && _recoveryGuard.healthy && _recoveryReady && !_checkpointFault && HatchRecovery::journalAllows(_recoveryGuard.value.uncertainMask,i,_preparingMotor==i,_turnCycles[i].active) &&
     !_recoveryState.motors[i].positionHold && storage.available && storage.logging &&
-    uint32_t(nowMs-storage.heartbeat)<=HatchConfig::RecoveryCommitTimeoutMs && _safety.ready(nowMs) && !_safety.critical && (p.flags & 2) &&
+    HatchTurning::workerResponsive(storageObservedMs,storage.heartbeat) && _safety.ready(nowMs) && !_safety.critical && (p.flags & 2) &&
     p.active[i] && HatchTurning::ageAllowed(epoch, p.start[i], p.reserved[i],p.turningEnd[i]);
 }
 bool IncubatorController::manualMotorAllowed(uint8_t i, uint32_t nowMs) const {

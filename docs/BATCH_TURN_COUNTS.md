@@ -1,5 +1,18 @@
 # Completed timed turns in Batch summary
 
+## Paired completion timing fix
+
+Motor eligibility now samples current uptime after copying the SD worker heartbeat.
+Previously a loop timestamp captured before Lower's NVS completion writes could
+predate the heartbeat and wrap unsigned subtraction. This falsely reported a
+stalled SD worker, interrupting Upper before its full run counted. Each roller's
+timer update also refreshes uptime after peer completion work. Real SD stalls,
+sensor protections and incomplete-run exclusions remain enforced.
+
+Existing counts are retained: a successful paired run advances 31/17 to 32/18;
+historical missing completions are not invented. Firmware upload alone applies
+this fix to the current SHT40 version; no UI or schedule settings are changed.
+
 The selected batch summary shows completed timed runs for its assigned roller.
 Both placement shows Lower and Upper separately, so two motors completing once
 are not misleadingly reported as two turns of every egg. The existing API data
