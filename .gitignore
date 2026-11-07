@@ -8,3 +8,11 @@
 /backups/
 /release/
 /dist/
+
+# Camera integration build and local Firebase credentials
+/build-hatch-link/
+/functions/node_modules/
+/functions/.env*
+/functions/.secret.local
+/functions/camera-secret.txt
+/include/CameraLinkSecrets.h

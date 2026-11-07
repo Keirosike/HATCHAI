@@ -28,6 +28,19 @@ const HatchControl = {
     if (confirm([options.message, review, options.notice].filter(Boolean).join('\n\n'))) options.onConfirm();
   },
   bindEvents() {
+    const applyTarget=()=>{
+      const value=this.parseNumber(this.elements.targetTemp?.value,NaN);
+      if(!Number.isFinite(value) || value<30 || value>37.8) {
+        this.setText('settingsStatus','Target must be 30–37.8°C'); return;
+      }
+      return this.perform(()=>HatchEspApi.updateControl({targetTemperature:value}),'Target applied and saved');
+    };
+    this.elements.targetTemp?.addEventListener('blur',event=>{
+      if(event.relatedTarget!==this.elements.saveSettingsBtn) applyTarget();
+    });
+    this.elements.targetTemp?.addEventListener('keydown',event=>{
+      if(event.key==='Enter') { event.preventDefault(); applyTarget(); }
+    });
     this.elements.autoModeSwitch?.addEventListener('change', () => this.syncControlSettings({ autoMode: this.elements.autoModeSwitch.checked }));
     this.devices.bulb.switch?.addEventListener('change', () => this.syncControlSettings({ bulbOn: this.devices.bulb.switch.checked }));
     this.devices.fan.switch?.addEventListener('change',()=>this.syncControlSettings({fanOn:this.devices.fan.switch.checked}));
@@ -141,18 +154,19 @@ const HatchControl = {
     });
     const low=c.heaterOnBelow, high=c.heaterOffAbove;
     this.setText('bulbText', c.autoMode ?
-      c.heaterControl==='thermostat_hysteresis' && Number.isFinite(low) && Number.isFinite(high) ?
+      c.heaterControl==='pid_tpo' ? `Temperature ${Number.isFinite(data.temperature) ? data.temperature.toFixed(1) : '--'}°C · Target ${Number(c.targetTemperature).toFixed(1)}°C · ${c.heaterCycleSeconds || 20}s relay window` : c.heaterControl==='thermostat_hysteresis' && Number.isFinite(low) && Number.isFinite(high) ?
         `ON below ${low.toFixed(1)}°C; OFF above ${high.toFixed(1)}°C` : 'Thermostat limits unavailable' :
-      'Manual · up to 5 seconds before relay ON');
+      'Manual · relay restart protection applies');
     this.setText('fanText', c.autoMode ? 'Automatic circulation' : c.manualFanOn===false && c.fanOn ? 'Requested OFF; running for heating or sensor/temperature protection' : `Manual request; relay ${c.fanOn ? 'ON' : 'OFF'}`);
     this.setText('heaterStatus', c.heaterStatus || 'Heating detail unavailable; update firmware');
     this.setText('bulbActualState', c.bulbOn === true ? 'ON' : 'OFF');
     this.setText('heaterDemandValue', c.autoMode === false ? 'Manual' :
+      c.heaterControl === 'pid_tpo' && Number.isFinite(c.heaterDutyPercent) ? `PID ${c.heaterDutyPercent.toFixed(1)}%` :
       c.heaterControl === 'thermostat_hysteresis' ? 'Thermostat' : 'Unavailable');
     this.setText('controlNotice', `${this.safety.message || 'Controller connected.'} ${this.recovery.checkpointFault ? 'SD save is retrying; details are in Settings > Component status.' : this.recovery.checkpointPending ? 'Saving automatically to SD...' : this.recovery.ready ? 'SD recovery synced.' : 'Recovery is checking saved state.'}`);
     this.setText('wifiStatus', data.wifiStatus || 'Offline');
     if (options.updateFields) {
-      this.elements.targetTemp.value = `${Number(c.targetTemperature ?? 37.5).toFixed(1)}°C`;
+      this.elements.targetTemp.value = `${Number(c.targetTemperature ?? 37.7).toFixed(1)}°C`;
       this.elements.targetHumidity.value = `${c.targetHumidity ?? 55}%`;
       this.elements.turnInterval.value = String(c.turnIntervalMinutes || 120);
       this.elements.turnInterval2.value = String(c.turnInterval2Minutes || 120);

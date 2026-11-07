@@ -11,7 +11,7 @@
 #include "RealTimeClock.h"
 #include "Sht40Sensor.h"
 #include "TurnCycle.h"
-#include "RelayThermostat.h"
+#include "RelayPid.h"
 #include "ThermalSafety.h"
 #include "DeviceProfile.h"
 #include "RuntimeWatchdog.h"
@@ -131,7 +131,7 @@ private:
   LcdStatusDisplay& _display;
   ReadingHistory _history;
   ControlSettings _settings;
-  RelayThermostat _heaterControl;
+  RelayPid _heaterControl;
   ThermalSafety _safety;
   DeviceProfileStore _profile;
   RuntimeWatchdog _watchdog;

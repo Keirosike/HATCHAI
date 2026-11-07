@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include "IncubatorController.h"
 #include "NetworkManager.h"
+#include "ChickBuzzer.h"
 
 class HatchWebServer {
 public:
@@ -14,6 +15,13 @@ public:
 
 private:
   void registerRoutes();
+  void handleCameraEvent();
+  void handleCameraStatus();
+  String _cameraIp;
+  uint32_t _cameraSeenMs=0, _cameraSequence=0;
+  bool _cameraSeen=false, _cameraChick=false, _cameraDetectorOk=false;
+  uint32_t _cameraBoot=0;
+  ChickBuzzer _chickBuzzer;
   void handleApiData();
   void handleApiControl();
   void handleApiTurn();

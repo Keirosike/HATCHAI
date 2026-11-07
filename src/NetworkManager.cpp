@@ -2,6 +2,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <time.h>
 #include <esp_wifi.h>
 #include "Config.h"
 #include "JsonBuilder.h"
@@ -76,6 +77,8 @@ void NetworkManager::update() {
       _bootFallbackPending = false;
       _retrySaved = _credentialsSaved;
       startMdns();
+      // Asynchronous SNTP; RTC recovery must not depend on opening/logging into a browser.
+      configTime(0,0,"pool.ntp.org","time.google.com");
       Serial.println("HatchAI station connected");
       return;
     }

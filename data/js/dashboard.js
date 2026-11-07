@@ -594,10 +594,12 @@ document.addEventListener("DOMContentLoaded", function () {
     setText("humidityValue", formatHumidity(shown?.humidity ?? null));
     const note = sensorFresh ? (data.sensorError ? 'Last valid reading — sensor retrying' : '') :
       lastValidEnvironment ? 'Last valid reading — sensor unavailable' : 'Waiting for a valid sensor reading';
-    setText("temperatureReadingNote", note || 'Shared incubator temperature');
+    const targetNote=data.control?.targetTemperature!=null ? `Target ${Number(data.control.targetTemperature).toFixed(1)}${DEGREE_C}` : '';
+    setText("temperatureReadingNote", [note,targetNote].filter(Boolean).join(' · ') || 'Shared incubator temperature');
     setText("humidityReadingNote", note || 'Shared incubator humidity');
     setText("relayValue", data.relayStatus || "Heating OFF");
-    setText("relayBadge", data.relayBadge || "Bulb Idle");
+    setText("relayBadge", data.control?.heaterControl==='pid_tpo' && Number.isFinite(data.control.heaterDutyPercent) ?
+      `PID ${data.control.heaterDutyPercent.toFixed(1)}% · ${data.relayOn ? 'ON' : 'OFF'}` : data.relayBadge || "Bulb Idle");
     setText("motorValue", data.motorStatus || "Idle");
     setText("motorSubtext", data.motorNote || "Waiting for ESP32 data");
     if (!window.HatchBatchStore) {

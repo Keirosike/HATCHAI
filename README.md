@@ -1,5 +1,9 @@
 # HatchAI ESP32 — SHT40 version
 
+> Camera and Firebase push: [connection, notification setup and buzzer wiring](docs/CAMERA_PUSH.md). Sound defaults to disabled pending confirmation of a free GPIO.
+
+> Current heating: [mechanical-relay PID for the two-roller SHT40 system](docs/PID_CONTROL.md). Default 37.7 C; existing saved targets are retained. Earlier thermostat descriptions are historical.
+
 > Current sensor: [SHT40 conversion and wiring](docs/SHT40_VERSION.md). Older DHT22 wiring instructions in historical notes do not apply to this version.
 
 > Latest: [Automatic/Manual controls and automatic interrupted-turn recovery](docs/AUTO_MANUAL_ROLLER_UPDATE.md).

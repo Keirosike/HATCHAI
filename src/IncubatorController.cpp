@@ -47,7 +47,7 @@ void IncubatorController::begin() {
   _startedMs = millis();
   _recoveryLoadStartedMs = _startedMs;
   initializeOutputs();
-  _heaterControl.reset(_startedMs);
+  _heaterControl.begin(_startedMs);
   _motorOffMs[0] = _motorOffMs[1] = _startedMs;
   _profile.begin();
   _recoveryGuard.begin();
@@ -131,6 +131,7 @@ bool IncubatorController::applySettings(const ControlSettings& settings) {
     settings.temperatureOffsetC != _settings.temperatureOffsetC;
   const bool calibrationChanged = settings.temperatureOffsetC != _settings.temperatureOffsetC;
   if (modeChanged) stopTurnCycle();
+  const ControlSettings previousSettings=_settings;
   DeviceProfile previous = _profile.value;
   _settings = settings;
   if (modeChanged) { _settings.heaterOn=false; _settings.fanOn=true; }
@@ -141,9 +142,13 @@ bool IncubatorController::applySettings(const ControlSettings& settings) {
   p.calibration = settings.temperatureOffsetC;
   p.interval[0] = settings.turnIntervalMinutes; p.interval[1] = settings.turnInterval2Minutes;
   p.duration[0] = settings.turnDurationSeconds; p.duration[1] = settings.turnDuration2Seconds;
-  if (memcmp(&previous, &p, sizeof(p)) != 0 && !persistProfile()) return false;
+  if (memcmp(&previous, &p, sizeof(p)) != 0 && !persistProfile()) {
+    _settings=previousSettings; p=previous; return false;
+  }
   if (calibrationChanged) { _safety.invalidate(); _currentReading.valid = false; }
-  if (resetHeating || (!_settings.autoMode && !_settings.heaterOn)) forceHeaterOff(millis());
+  if(resetHeating && !calibrationChanged) {
+    _heater.set(false); _heaterControl.retarget(millis(),_settings.targetTemperatureC);
+  } else if(resetHeating || (!_settings.autoMode && !_settings.heaterOn)) forceHeaterOff(millis());
   requestStateSave();
   // Legacy switches request bounded timed runs; continuous motor ON is removed.
   if (!settings.autoMode && settings.turnerOn) triggerTurnCycle(1, p.duration[0] * 1000UL);
@@ -360,14 +365,14 @@ String IncubatorController::buildStatusJson(
   json += "\"fanOn\":";
   json += HatchJson::boolValue(_fan.isOn());
   json += ",\"heaterStatus\":" + HatchJson::quote(heaterStatus());
-  json += ",\"heaterControl\":\"thermostat_hysteresis\"";
-  json += ",\"heaterControlTemperature\":" + (_safety.ready(nowMs) ? HatchJson::number(_safety.controlTemperature(),2) : String("null"));
-  json += ",\"heaterAutomaticRestartSeconds\":" + String(HatchConfig::HeaterAutomaticRestartMs/1000);
+  json += ",\"heaterControl\":\"pid_tpo\"";
+  json += ",\"heaterControlTemperature\":" + (_safety.ready(nowMs) ? HatchJson::number(_currentReading.temperatureC,2) : String("null"));
+  json += ",\"heaterAutomaticRestartSeconds\":" + String(HatchConfig::HeaterMinimumOffMs/1000);
   json += ",\"heaterDutyPercent\":";
-  json += "null"; // Legacy field: thermostat has no PID duty percentage.
-  json += ",\"heaterCycleSeconds\":0";
-  json += ",\"heaterOnBelow\":" + HatchJson::number(_settings.targetTemperatureC-HatchConfig::HeaterHysteresisC,1);
-  json += ",\"heaterOffAbove\":" + HatchJson::number(_settings.targetTemperatureC+HatchConfig::HeaterHysteresisC,1);
+  json += HatchJson::number(_heaterControl.output(),1);
+  json += ",\"heaterCycleSeconds\":"+String(HatchConfig::HeaterWindowMs/1000);
+  json += ",\"heaterMinimumOnSeconds\":"+String(HatchConfig::HeaterMinimumOnMs/1000);
+  json += ",\"heaterOnBelow\":null,\"heaterOffAbove\":null"; // Legacy fields: PID has no fixed hysteresis thresholds.
   json += ",\"manualFanOn\":" + HatchJson::boolValue(_settings.fanOn);
   json += ",\"manualBulbOn\":" + HatchJson::boolValue(_settings.heaterOn);
   json += ",\"turnDurationSeconds\":" + String(_settings.turnDurationSeconds);
@@ -527,6 +532,10 @@ void IncubatorController::readSensorIfDue(uint32_t nowMs) {
   const bool wasValid = _currentReading.valid;
   const bool wasHigh = _safety.high;
   _safety.sample(reading.timestampMs, reading.valid, reading.temperatureC);
+  _heaterControl.sample(reading.timestampMs,reading.temperatureC,reading.valid,_settings.targetTemperatureC);
+  // Failed frames do not authorize a new pulse, even when telemetry retains a
+  // recent valid value. Existing thermal/watchdog gates remain independent.
+  if(!reading.valid) forceHeaterOff(millis());
   if (!_safety.heatAllowed(millis())) forceHeaterOff(millis());
   if (!wasCritical && _safety.critical) {
     stopTurnCycle(); _profile.value.flags |= 1; persistProfile();
@@ -633,7 +642,13 @@ void IncubatorController::refreshDisplayIfDue(uint32_t nowMs) {
   const bool shared=hasLower && hasUpper && strcmp(p.batchId[0],p.batchId[1])==0 && p.start[0]==p.start[1];
   const auto label=[this,&p](uint8_t i) -> String {
     const auto& b=_recoveryState.batches[i];
-    return strcmp(b.id,p.batchId[i])==0 && b.start==p.start[i] && b.label[0] ? String(b.label) : String(p.batchId[i]);
+    const auto matches=[&p,i](const HatchRecovery::Batch& saved) {
+      return saved.start==p.start[i] && strcmp(saved.id,p.batchId[i])==0 && saved.label[0];
+    };
+    const int slot=HatchDisplay::labelSource(matches(b),
+      _recoveryPair.valid[0] && matches(_recoveryPair.state[0].batches[i]),_recoveryPair.state[0].sequence,
+      _recoveryPair.valid[1] && matches(_recoveryPair.state[1].batches[i]),_recoveryPair.state[1].sequence);
+    return slot==-2 ? String(b.label) : slot>=0 ? String(_recoveryPair.state[slot].batches[i].label) : String("Loading");
   };
   const auto rollerLine=[this,&p,&label](uint8_t i,bool assigned) -> String {
     const String prefix=i ? "Upper: " : "Lower: ";
@@ -998,6 +1013,7 @@ bool IncubatorController::acknowledgeAlarm() {
   _profile.value.flags &= ~5UL;
   if (!persistProfile()) { _safety.critical = wasCritical; return false; }
   _watchdog.recoveryRequired = false;
+  _heaterControl.clearTrip();
   forceHeaterOff(millis()); return true;
 }
 bool IncubatorController::setTurningArmed(bool armed) {
@@ -1230,14 +1246,15 @@ String IncubatorController::heaterStatus() const {
   if (!_watchdog.healthy) return "Heater OFF: watchdog fault";
   if (_watchdog.recoveryRequired) return "Heater OFF: qualifying sensor after restart";
   if (!_safety.ready(millis())) return "Heater OFF: waiting for fresh, qualified SHT40 readings";
+  if (!_heaterControl.ready(millis())) return "Heater OFF: PID qualifying fresh SHT40 readings";
   if (_safety.inhibited || _safety.high) return "Heater OFF: cooling hold until at most 37.5 C";
   if (_heater.isOn()) return "Heating ON";
   if (!_settings.autoMode && !_settings.heaterOn) return "Manual bulb OFF";
-  if (!_settings.autoMode || _safety.controlTemperature()<_settings.targetTemperatureC-HatchConfig::HeaterHysteresisC) {
+  {
     const uint32_t remaining=_heaterControl.restartRemainingMs(millis(),_settings.autoMode);
     if (remaining) return String("Heater OFF: relay restart delay, ") + String((remaining+999)/1000) + " s remaining";
   }
-  return "Heater OFF: thermostat waiting for temperature to fall below the ON threshold";
+  return "Heater OFF: PID window / residual heat coast";
 }
 String IncubatorController::safetyMessage() const {
   if (_safety.critical) return "Critical temperature alarm: heater and turners OFF. Acknowledge after cooling.";

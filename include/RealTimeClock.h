@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "RtcValidation.h"
 
 struct DateTimeValue {
   uint16_t year = 2000;
@@ -33,13 +34,15 @@ private:
   uint8_t decimalToBcd(uint8_t value) const;
   bool readRegisters(uint8_t reg, uint8_t* bytes, uint8_t count) const;
   bool readDate(DateTimeValue& value, uint32_t& epoch) const;
+  bool enableOscillator();
+  void tryNetworkSync();
   String twoDigits(uint8_t value) const;
 
   uint8_t _address;
   bool _ready = false;
   bool _lostPower = false;
-  bool _needsSet = false, _seen = false;
-  uint8_t _good = 0, _bad = 0;
-  uint32_t _pollMs = 0, _changedMs = 0, _lastReadMs = 0, _epoch = 0;
+  bool _needsSet=false,_oscillatorConfigured=false,_networkTimeTrusted=false,_networkSetAttempted=false;
+  uint32_t _pollMs=0,_epoch=0,_lastNetworkSetMs=0;
+  HatchRtc::Progress _progress;
   DateTimeValue _cached;
 };

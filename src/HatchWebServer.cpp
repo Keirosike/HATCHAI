@@ -5,6 +5,8 @@
 #include <SPIFFS.h>
 #include "JsonBuilder.h"
 #include "SessionPolicy.h"
+#include "CameraLinkConfig.h"
+#include <ArduinoJson.h>
 
 namespace {
 constexpr unsigned long SessionTimeoutMs = 90000;
@@ -29,16 +31,22 @@ HatchWebServer::HatchWebServer(
 ) : _server(HatchConfig::WebServerPort), _controller(controller), _network(network) {}
 
 void HatchWebServer::begin() {
+  _chickBuzzer.begin();
   registerRoutes();
   _server.begin();
   Serial.println("HTTP server started");
 }
 
 void HatchWebServer::handleClient() {
+  _chickBuzzer.update();
   _server.handleClient();
 }
 
 void HatchWebServer::registerRoutes() {
+  const char* cameraHeaders[]={"X-Camera-Key"};
+  _server.collectHeaders(cameraHeaders,1);
+  _server.on("/api/camera",HTTP_GET,[this](){handleCameraStatus();});
+  _server.on("/api/camera/event",HTTP_POST,[this](){handleCameraEvent();});
   _server.on("/api/data", HTTP_GET, [this]() { handleApiData(); });
   _server.on("/api/control", HTTP_POST, [this]() { handleApiControl(); });
   _server.on("/api/control", HTTP_OPTIONS, [this]() { handleOptions(); });
@@ -533,4 +541,35 @@ void HatchWebServer::refreshSession(const String& token, const String& username)
   _sessionToken = token;
   _sessionUsername = username;
   _sessionLastSeenMs = millis();
+}
+
+void HatchWebServer::handleCameraStatus() {
+  const bool online=_cameraSeen && uint32_t(millis()-_cameraSeenMs)<20000;
+  sendJson(String("{\"online\":")+HatchJson::boolValue(online)+
+    ",\"detectorOk\":"+HatchJson::boolValue(online && _cameraDetectorOk)+
+    ",\"chick\":"+HatchJson::boolValue(online && _cameraChick)+
+    ",\"url\":"+HatchJson::quote(online ? String("http://")+_cameraIp : String(""))+
+    ",\"notificationsUrl\":"+HatchJson::quote(HatchCamera::NotificationsUrl)+
+    ",\"buzzerEnabled\":"+HatchJson::boolValue(HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33)+
+    ",\"sequence\":"+String(_cameraSequence)+"}");
+}
+void HatchWebServer::handleCameraEvent() {
+  if(strlen(HatchCamera::Key)<32 || _server.header("X-Camera-Key")!=HatchCamera::Key) {
+    sendJson("{\"message\":\"Camera key rejected or not configured\"}",403); return;
+  }
+  if(_server.arg("plain").length()>384) { sendJson("{\"message\":\"Event too large\"}",413); return; }
+  StaticJsonDocument<512> doc;
+  IPAddress ip;
+  if(deserializeJson(doc,_server.arg("plain")) || !doc["ip"].is<const char*>() ||
+     !ip.fromString(doc["ip"].as<const char*>()) || ip!=_server.client().remoteIP() ||
+     !doc["chick"].is<bool>() || !doc["detectorOk"].is<bool>() || !doc["sequence"].is<uint32_t>() || !doc["boot"].is<uint32_t>()) {
+    sendJson("{\"message\":\"Invalid camera event\"}",400); return;
+  }
+  if(doc["detectorOk"].as<bool>() && doc["chick"].as<bool>() && doc["sequence"].as<uint32_t>()>0 &&
+     (!_cameraSeen || _cameraBoot!=doc["boot"].as<uint32_t>() || _cameraSequence!=doc["sequence"].as<uint32_t>())) _chickBuzzer.alert();
+  _cameraBoot=doc["boot"].as<uint32_t>();
+  _cameraIp=ip.toString(); _cameraSeen=true; _cameraSeenMs=millis();
+  _cameraChick=doc["chick"].as<bool>(); _cameraDetectorOk=doc["detectorOk"].as<bool>();
+  _cameraSequence=doc["sequence"].as<uint32_t>();
+  sendJson("{\"ok\":true}");
 }

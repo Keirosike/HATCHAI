@@ -1,6 +1,9 @@
 #include "RealTimeClock.h"
 #include "Calendar.h"
 #include <Wire.h>
+#include <time.h>
+#include <esp_sntp.h>
+#include "Config.h"
 
 RealTimeClock::RealTimeClock(uint8_t address) : _address(address) {}
 void RealTimeClock::begin() {
@@ -16,13 +19,11 @@ bool RealTimeClock::readRegisters(uint8_t reg, uint8_t* bytes, uint8_t count) co
 bool RealTimeClock::readDate(DateTimeValue& v, uint32_t& stamp) const {
   uint8_t r[7], status;
   if (!readRegisters(0, r, 7) || !readRegisters(0x0F, &status, 1) || (status & 0x80)) return false;
-  if ((r[0] & 0x80) || (r[1] & 0x80) || (r[2] & 0xC0) ||
-      (r[4] & 0xC0) || (r[5] & 0xE0) || r[3] < 1 || r[3] > 7) return false;
-  for (uint8_t i = 0; i < 7; ++i) if ((r[i] & 15) > 9 || (r[i] >> 4) > 9) return false;
+  stamp=HatchRtc::decode(r);
+  if(!stamp) return false;
   v.year = 2000 + bcdToDecimal(r[6]); v.month = bcdToDecimal(r[5]);
-  v.day = bcdToDecimal(r[4]); v.hour = bcdToDecimal(r[2]);
+  v.day = bcdToDecimal(r[4]); v.hour = HatchRtc::hour(r[2]);
   v.minute = bcdToDecimal(r[1]); v.second = bcdToDecimal(r[0]);
-  stamp = HatchCalendar::epoch(v.year, v.month, v.day, v.hour, v.minute, v.second);
   v.valid = stamp != 0; return v.valid;
 }
 void RealTimeClock::update() {
@@ -30,23 +31,46 @@ void RealTimeClock::update() {
   if (uint32_t(nowMs - _pollMs) < 1000) return;
   _pollMs = nowMs;
   uint8_t status;
-  if (!readRegisters(0x0F, &status, 1)) { _ready=false; _cached.valid = false; _good = 0; return; }
+  if(sntp_get_sync_status()==SNTP_SYNC_STATUS_COMPLETED) _networkTimeTrusted=true;
+  if (!readRegisters(0x0F, &status, 1)) { _ready=false; _cached.valid=false; _progress.fail(); return; }
+  const bool previouslyLost=_lostPower;
   _ready = true; _lostPower = (status & 0x80) != 0;
+  if(_lostPower && !previouslyLost) Serial.println("[RTC] Oscillator-stop flag set; waiting for network/browser time. Check backup battery if this repeats after power OFF.");
+  if(!_oscillatorConfigured && !enableOscillator()) { _cached.valid=false; _progress.fail(); return; }
   DateTimeValue current; uint32_t stamp;
-  if (_lostPower) { _cached.valid = false; _good = 0; return; }
+  if (_lostPower) { _cached.valid=false; _progress.requireSync(); tryNetworkSync(); return; }
   if (!readDate(current, stamp)) {
-    if (_bad < 3) ++_bad;
-    if (_bad >= 3) _needsSet = true;
-    _cached.valid = false; _good = 0; return;
+    _progress.fail(); _needsSet=_progress.needsSync();
+    _cached.valid=false; tryNetworkSync(); return;
   }
-  _bad = 0;
-  if (_seen && (stamp < _epoch || stamp - _epoch > uint32_t(nowMs - _lastReadMs) / 1000 + 3))
-    _needsSet = true;
-  if (!_seen || stamp != _epoch) _changedMs = nowMs;
-  if (uint32_t(nowMs - _changedMs) > 3500) _needsSet = true;
-  _seen = true; _epoch = stamp; _lastReadMs = nowMs; _cached = current;
-  if (_good < 3) ++_good;
-  _cached.valid = _good >= 3 && !_needsSet;
+  current.valid=_progress.accept(millis(),stamp); _needsSet=_progress.needsSync();
+  if(current.valid) _epoch=stamp;
+  const bool wasValid=_cached.valid;
+  _cached=current;
+  if(current.valid && !wasValid) Serial.println("[RTC] Clock validated; ready without browser login");
+  if(_needsSet) tryNetworkSync();
+}
+bool RealTimeClock::enableOscillator() {
+  uint8_t control;
+  if(!readRegisters(0x0e,&control,1)) return false;
+  if(control&0x80) {
+    Wire.beginTransmission(_address); Wire.write(0x0e); Wire.write(control&0x7f);
+    if(Wire.endTransmission()!=0 || !readRegisters(0x0e,&control,1) || (control&0x80)) return false;
+    Serial.println("RTC backup oscillator enabled; lost-time flag still requires a trusted time source");
+  }
+  _oscillatorConfigured=true; return true;
+}
+void RealTimeClock::tryNetworkSync() {
+  const uint32_t nowMs=millis();
+  if(!_networkTimeTrusted || (_networkSetAttempted && uint32_t(nowMs-_lastNetworkSetMs)<30000)) return;
+  const time_t utc=time(nullptr);
+  if(utc<1704067200) return;
+  const time_t local=utc+HatchConfig::ClockUtcOffsetSeconds;
+  struct tm value={};
+  if(!gmtime_r(&local,&value) || !HatchCalendar::valid(value.tm_year+1900,value.tm_mon+1,value.tm_mday,value.tm_hour,value.tm_min,value.tm_sec)) return;
+  char iso[24]; snprintf(iso,sizeof(iso),"%04d-%02d-%02dT%02d:%02d:%02d",value.tm_year+1900,value.tm_mon+1,value.tm_mday,value.tm_hour,value.tm_min,value.tm_sec);
+  _networkSetAttempted=true; _lastNetworkSetMs=nowMs;
+  if(setIsoTime(iso)) Serial.println("RTC time restored automatically from network (Asia/Manila)");
 }
 bool RealTimeClock::isReady() const { return now().valid; }
 bool RealTimeClock::lostPower() const { return _lostPower; }
@@ -84,7 +108,7 @@ bool RealTimeClock::setIsoTime(const String& iso) {
   if (Wire.endTransmission() != 0) return false;
   DateTimeValue check; uint32_t stamp;
   if (!readDate(check, stamp) || stamp < wanted || stamp - wanted > 1) return false;
-  _ready = true; _lostPower = _needsSet = _seen = false; _good = _bad = 0; _cached.valid = false;
+  _ready = true; _lostPower = _needsSet = false; _progress.reset(); _cached.valid = false;
   _pollMs = millis() - 1000; return true;
 }
 String RealTimeClock::timestamp() const {

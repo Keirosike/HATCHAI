@@ -17,6 +17,7 @@ constexpr const char* AccessPointPassword = "hatchai123";
 constexpr uint8_t I2cSdaPin = 21;
 constexpr uint8_t I2cSclPin = 22;
 constexpr uint8_t Ds3231Address = 0x68;
+constexpr long ClockUtcOffsetSeconds = 8L*3600; // Asia/Manila; RTC stores local wall time
 constexpr uint8_t LcdI2cAddress = 0x27;
 constexpr uint8_t Sht40Address = 0x44;
 constexpr uint32_t Sht40ConversionMs = 10;
@@ -46,11 +47,14 @@ constexpr uint8_t Bulb1RelayPin = 27;
 constexpr uint8_t TurnerRelayPin = 25; // lower roller
 constexpr uint8_t Turner2RelayPin = 26; // upper roller
 constexpr uint8_t RollerMappingVersion = 2;
+// Disabled until passive-buzzer wiring is confirmed. GPIO25 remains the lower roller.
+constexpr int PassiveBuzzerPin = -1; // Only free GPIO32 or GPIO33 supported by ChickBuzzer.
+constexpr unsigned BuzzerToneHz = 2200;
 constexpr bool legacyRollerPins(uint8_t lower,uint8_t upper) { return lower==26 && upper==25; }
 constexpr bool currentRollerPins(uint8_t lower,uint8_t upper) { return lower==TurnerRelayPin && upper==Turner2RelayPin; }
 constexpr bool RelayActiveHigh = false;
 
-constexpr float DefaultTargetTemperatureC = 37.5f;
+constexpr float DefaultTargetTemperatureC = 37.7f;
 constexpr float DefaultTargetHumidityPercent = 55.0f;
 constexpr float FanCutoffAboveTargetC = 0.5f;
 constexpr uint16_t DefaultTurnIntervalMinutes = 120;
@@ -78,7 +82,7 @@ constexpr float HeaterHysteresisC = 0.3f;
 constexpr uint32_t HeaterRelayMinimumOffMs = 5000;
 constexpr uint32_t HeaterAutomaticRestartMs = 30000;
 // Legacy PID constants are retained only for old checkpoint validation.
-// Main firmware uses RelayThermostat.
+// Current firmware uses RelayPid; these values remain for legacy SD import.
 constexpr float HeaterPidKp = 20.0f;
 constexpr float HeaterPidKi = 0.04f;
 constexpr float HeaterPidKd = 100.0f;
@@ -87,6 +91,15 @@ constexpr uint32_t HeaterRelayWindowMs = 20000;
 constexpr uint32_t HeaterRelayMinimumSwitchMs = HeaterRelayMinimumOffMs;
 constexpr uint32_t HeaterWindowLateMs = 250;
 constexpr float HeaterPidRampPercentPerSecond = 2.5f;
+constexpr float HeaterKp = 25.0f;
+// Recover sustained near-target heat loss faster; saturation/coast guards remain.
+constexpr float HeaterKi = 0.10f;
+constexpr float HeaterKd = 100.0f;
+constexpr float HeaterCoastSeconds = 15.0f;
+constexpr float HeaterTripC = CriticalTemperatureC;
+constexpr uint32_t HeaterWindowMs = 20000;
+constexpr uint32_t HeaterMinimumOnMs = 5000;
+constexpr uint32_t HeaterMinimumOffMs = 10000;
 constexpr uint32_t TurnerPulseMs = 120000;
 constexpr uint16_t MinManualTurnSeconds = 1;
 constexpr uint16_t MaxManualTurnSeconds = 600;

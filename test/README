@@ -8,8 +8,9 @@ operate relays, test physical movement or certify electrical/thermal safety.
     platformio run -e esp32dev
     platformio run -e esp32dev --target buildfs
 
-The main project uses RelayThermostat. Obsolete PID examples and their tests
-were archived during deployment cleanup; current regression tests remain here.
+The main project now uses RelayPid; RelayThermostat tests remain as legacy
+compatibility checks. Include pid_compile_test.cpp in production C++14 checks.
+See docs/PID_CONTROL.md for the current two-roller integration and test limits.
 
 ## Compiler-evaluated control checks
 

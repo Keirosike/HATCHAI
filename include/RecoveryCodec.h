@@ -15,11 +15,13 @@ public:
     JsonObject c=document.createNestedObject("config");
     c["temperatureMilliC"]=s.temperatureMilli; c["humidityMilliPercent"]=s.humidityMilli;
     c["offsetMilliC"]=s.offsetMilli; c["automatic"]=s.automatic; c["manualHeatRequested"]=s.manualHeatRequested;
-    c["fanAlwaysOn"]=false; c["fanPolicy"]="auto_or_safety_override"; c["heaterControl"]="thermostat_hysteresis";
+    c["fanAlwaysOn"]=false; c["fanPolicy"]="auto_or_safety_override"; c["heaterControl"]="pid_tpo";
     c["hysteresisMilliC"]=int32_t(HatchConfig::HeaterHysteresisC*1000);
-    c["windowMs"]=0; c["kp"]=0; c["ki"]=0; c["kd"]=0;
+    c["windowMs"]=HatchConfig::HeaterWindowMs; c["kp"]=HatchConfig::HeaterKp; c["ki"]=HatchConfig::HeaterKi; c["kd"]=HatchConfig::HeaterKd;
+    c["minimumOnMs"]=HatchConfig::HeaterMinimumOnMs; c["minimumOffMs"]=HatchConfig::HeaterMinimumOffMs;
+    c["coastSeconds"]=HatchConfig::HeaterCoastSeconds;
     c["derivativeFilterSeconds"]=0; c["rampPercentPerSecond"]=0;
-    c["minimumRelayDwellMs"]=HatchConfig::HeaterRelayMinimumOffMs;
+    c["minimumRelayDwellMs"]=HatchConfig::HeaterMinimumOffMs;
     c["inhibitMilliC"]=int32_t(HatchConfig::HeaterInhibitC*1000); c["resumeMilliC"]=int32_t(HatchConfig::HeaterResumeC*1000);
     c["highMilliC"]=int32_t(HatchConfig::HighTemperatureC*1000); c["criticalMilliC"]=int32_t(HatchConfig::CriticalTemperatureC*1000);
     c["lowMilliC"]=int32_t(HatchConfig::LowTemperatureC*1000); c["lowClearMilliC"]=int32_t(HatchConfig::LowClearC*1000);
@@ -126,6 +128,19 @@ public:
   size_t configuration(char* output,size_t capacity) { return serializeJson(document["config"],output,capacity); }
 private:
   bool heaterConfigurationCompatible(JsonObjectConst c) const {
+    if(c["heaterControl"]=="pid_tpo") {
+      // Gains are historical diagnostics, not restored control parameters.
+      // Retuning must not invalidate otherwise valid saved batch dates.
+      return c["windowMs"]==HatchConfig::HeaterWindowMs &&
+        c["kp"].is<float>() && c["kp"].as<float>()>=0 && c["kp"].as<float>()<=1000 &&
+        c["ki"].is<float>() && c["ki"].as<float>()>=0 && c["ki"].as<float>()<=100 &&
+        c["kd"].is<float>() && c["kd"].as<float>()>=0 && c["kd"].as<float>()<=10000 &&
+        c["minimumOnMs"]==HatchConfig::HeaterMinimumOnMs && c["minimumOffMs"]==HatchConfig::HeaterMinimumOffMs &&
+        c["coastSeconds"]==HatchConfig::HeaterCoastSeconds && c["minimumRelayDwellMs"]==HatchConfig::HeaterMinimumOffMs &&
+        c["derivativeFilterSeconds"]==0 && c["rampPercentPerSecond"]==0;
+    }
+    // Import both existing thermostat snapshots and the known earlier PID era.
+    // Only batch/settings state is recovered; no saved duty/integral/ON is replayed.
     if (c["minimumRelayDwellMs"]!=HatchConfig::HeaterRelayMinimumOffMs) return false;
     if (!c.containsKey("heaterControl")) {
       // Import known PID-era settings/batch journals; never replay old heat ON.

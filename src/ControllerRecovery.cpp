@@ -16,7 +16,7 @@ State IncubatorController::snapshot() const {
   s.sensorValid=_currentReading.valid; s.highAlarm=_safety.high; s.lowAlarm=_safety.low;
   s.measuredTemperatureMilli=s.sensorValid ? lroundf(_currentReading.temperatureC*1000) : 0;
   s.measuredHumidityMilli=s.sensorValid ? lroundf(_currentReading.humidityPercent*1000) : 0;
-  s.pidOutputMilli=0; // Legacy snapshot diagnostic; PID is no longer used.
+  s.pidOutputMilli=lroundf(_heaterControl.output()*1000); // Diagnostic only, never replayed.
   s.heaterOn=_heater.isOn(); s.lowerOn=_turner.isOn(); s.upperOn=_turner2.isOn();
   return s;
 }
@@ -334,7 +334,7 @@ void IncubatorController::updateRecovery(uint32_t nowMs) {
     }
     if(_currentReading.valid) {
       char line[240]; snprintf(line,sizeof(line),"%lu,%.2f,%.2f,%.2f,%u,%.2f,%s,%u,%u,%u\n",static_cast<unsigned long>(_clock.epoch()),
-        _currentReading.temperatureC,_settings.targetTemperatureC,_settings.temperatureOffsetC,_heater.isOn(),0.0, // Legacy pid_percent CSV column remains zero.
+        _currentReading.temperatureC,_settings.targetTemperatureC,_settings.temperatureOffsetC,_heater.isOn(),double(_heaterControl.output()), // Actual requested PID demand, existing CSV column.
         
         _settings.autoMode?"auto":"manual",_safety.high,_safety.low,_safety.critical);
       _logger.storage().log(RecoveryStorage::Temperature,line);

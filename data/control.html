@@ -26,6 +26,7 @@
       <ul class="nav-links" id="navLinks">
         <li><a href="dashboard.html">Dashboard</a></li>
         <li><a href="control.html" class="active">Control</a></li>
+        <li><a href="camera.html">Camera</a></li>
         <li><a href="batch.html">Batch</a></li>
         <li><a href="settings.html">Settings</a></li>
       </ul>
@@ -64,7 +65,7 @@
       <div class="card-header">
         <div>
           <h2 class="card-title">Automatic Control Mode</h2>
-          <p class="subtext" id="autoDescription">Thermostat maintains the temperature. Each enabled batch follows its saved turning schedule.</p>
+          <p class="subtext" id="autoDescription">PID maintains the temperature. Each enabled batch follows its saved turning schedule.</p>
         </div>
 
         <label class="switch">
@@ -83,7 +84,7 @@
         <div class="settings-grid">
           <div class="field">
             <label for="targetTemp">Target temperature (°C)</label>
-            <input type="text" inputmode="decimal" id="targetTemp" value="37.5&deg;C" />
+            <input type="text" inputmode="decimal" id="targetTemp" value="37.7&deg;C" />
           </div>
           <div class="field">
             <label for="targetHumidity">Target humidity (%)</label>
@@ -93,13 +94,13 @@
         <div class="climate-devices" aria-label="Heating and circulation controls">
           <article class="control-item" id="bulbCard">
             <div class="control-top">
-              <h2 class="control-name">Bulb</h2>
+              <h2 class="control-name">PTC Heater</h2>
               <label class="switch">
                 <input type="checkbox" id="bulbSwitch" aria-label="Heating bulb manual control" disabled />
                 <span class="slider"></span>
               </label>
             </div>
-            <p class="subtext" id="bulbText">Thermostat with a 0.3°C band on each side of the target</p>
+            <p class="subtext" id="bulbText">PID with a 20-second mechanical-relay window</p>
             <p class="subtext" id="heaterStatus" role="status">Waiting for heating status</p>
             <p class="device-meta">Relay: <strong id="bulbActualState">Unknown</strong> · Control: <strong id="heaterDemandValue">Unknown</strong></p>
           </article>
@@ -214,6 +215,6 @@
   <script src="js/batchStore.js?v=20261022-nvs-prediction"></script>
   <script src="js/modal.js?v=20261021-review"></script>
   <script src="js/toastNotification.js"></script>
-  <script src="js/control.js?v=20261022-parallel-rollers"></script>
+  <script src="js/control.js?v=20261101-pid"></script>
 </body>
 </html>

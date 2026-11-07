@@ -513,7 +513,7 @@ async function controlChecks(browser,origin) {
     relayPins:{bulb:27,fan:14,turner:25,turner2:26},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
     control:{autoMode:true,bulbOn:false,manualBulbOn:false,fanOn:true,manualFanOn:true,turnerOn:false,turner2On:false,
       turnDurationSeconds:15,turnDuration2Seconds:15,turnIntervalMinutes:120,turnInterval2Minutes:120,targetTemperature:37.5,targetHumidity:55,
-      heaterStatus:'Heater OFF: relay restart delay, 24 s remaining',heaterControl:'thermostat_hysteresis',heaterOnBelow:37.2,heaterOffAbove:37.8},
+      heaterStatus:'Heater OFF: relay restart delay, 24 s remaining',heaterControl:'pid_tpo',heaterDutyPercent:35,heaterCycleSeconds:20,heaterOnBelow:37.2,heaterOffAbove:37.8},
     safety:{version:2,sensorReady:true,watchdogReady:true,storageReady:true,rtcTrusted:true,critical:false,message:'Temperature checks passed.',
       batches:batches.map((b,i)=>({motor:i+1,batchId:b.id,label:b.label,active:true,canRun:true,canManualRun:true,status:'Manual ready'}))}};
   let active=0,maxActive=0;
@@ -632,8 +632,8 @@ async function controlChecks(browser,origin) {
   check(writes.length===beforeManualReview&&(await page.locator('#settingsStatus').innerText()).includes('mode changed'),
     'A changed operating mode invalidates the old settings review without a write');
   await page.locator('#autoModeSwitch').check();await settled();
-  check((await page.locator('#bulbText').innerText()).includes('37.2')&&(await page.locator('#bulbText').innerText()).includes('37.8'),'Thermostat ON/OFF limits remain visible');
-  check(!(await page.locator('main').innerText()).includes('PID'),'Control no longer advertises PID');
+  check((await page.locator('#bulbText').innerText()).includes('20s relay window'),'PID window remains visible in the existing heater card');
+  check((await page.locator('#heaterDemandValue').innerText()).includes('35.0%'),'Existing control value shows actual PID demand');
   state.safety.batches[0].label='LONG-FLOCK-LABEL-012345678901234';await page.evaluate(()=>HatchControl.loadControllerState());
   for(const width of [375,812,1280]) {
     await page.setViewportSize({width,height:900});
@@ -643,6 +643,13 @@ async function controlChecks(browser,origin) {
   delete state.control.turnDurationSeconds;delete state.control.turnDuration2Seconds;
   await page.evaluate(()=>HatchControl.loadControllerState({updateFields:true}));
   check(await page.locator('#turnDuration1').inputValue()==='120'&&await page.locator('#turnDuration2').inputValue()==='120','Missing duration fields use the 120-second fallback');
+  const beforeTarget=writes.length;
+  await page.locator('#targetTemp').fill('37.7°C'); await page.locator('#targetTemp').press('Enter'); await settled();
+  const targetWrite=writes[beforeTarget];
+  check(targetWrite?.targetTemperature==='37.7' && Object.keys(targetWrite).filter(key=>key!=='kind').length===1,'Existing target edit applies and saves without changing mode or roller settings');
+  await page.locator('#targetTemp').fill('39'); await page.locator('#targetTemp').press('Enter'); await settled();
+  check(writes.length===beforeTarget+1,'Invalid PID target never reaches the ESP32');
+  await page.locator('#targetTemp').fill('37.7°C');
   state.relayPins.bulb=26;await page.evaluate(()=>HatchControl.loadControllerState());
   check(await page.locator('#bulbSwitch').isDisabled(),'Incompatible relay firmware remains blocked');
   check(maxActive===1,'Control requests stay serialized');check(errors.length===0,'Control has no browser JavaScript errors');await page.close();

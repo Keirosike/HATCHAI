@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>HATCHAI Camera</title>
+<style>
+body{background:#101820;color:#ecf4f8;font:16px system-ui;margin:24px auto;padding:0 16px;max-width:900px}
+canvas{display:block;width:100%;height:auto;background:#000;border-radius:12px}
+button{padding:12px 24px;margin:12px 8px 12px 0;border:0;border-radius:8px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}#record.active{background:#b42335;color:white}a{color:#80d8ff}
+#status{color:#a9c4d2}h1{margin-bottom:4px}
+</style></head><body>
+<h1>HATCHAI FOMO Chick Detection</h1><p>Chicks only · Place chicks inside the central outlined area. Markers show object centres, not full object outlines.</p>
+<button id="toggle">Pause</button><span id="status" role="status">Connecting…</span>
+<div><button id="photo" disabled>Save photo</button><button id="record" disabled>Record MP4</button></div>
+<p id="saveStatus" role="status">Waiting for the camera. Photos and videos include the visible detection boxes.</p>
+<p><small>Recordings stop after 2 minutes. Keep this tab visible. Files download to this device; your browser may ask where to save them.</small></p>
+<div id="downloads"></div>
+<p id="detectorStatus" role="status">Waiting for detector status…</p>
+<p><label>Confidence: <output id="thresholdValue">50%</output>
+<input id="threshold" type="range" min="10" max="90" value="50" step="5"></label><br>
+<small>Lower for more candidates; raise to reduce false detections. AI boxes update independently of video.</small></p>
+<canvas id="view" width="640" height="480"></canvas><p id="results"></p>
+<script>
+const canvas=document.getElementById('view'),ctx=canvas.getContext('2d');
+const status=document.getElementById('status'),results=document.getElementById('results');
+let running=true;
+let hasFrame=false,recorder=null,recordingStream=null,recordTimer=null,startedRecording=0;
+const photoButton=document.getElementById('photo'),recordButton=document.getElementById('record');
+const toggleButton=document.getElementById('toggle'),saveStatus=document.getElementById('saveStatus');
+const mp4Mime=typeof MediaRecorder!=='undefined'&&typeof MediaRecorder.isTypeSupported==='function'
+ ? ['video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1.42001E','video/mp4'].find(type=>MediaRecorder.isTypeSupported(type))
+ : undefined;
+const videoSupported=Boolean(mp4Mime)&&typeof canvas.captureStream==='function';
+const savedFiles=[];
+function filename(extension){return 'HATCHAI-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+extension;}
+function downloadBlob(blob,extension){
+ if(!blob||!blob.size){saveStatus.textContent='No image or video data was produced. Please try again.';return;}
+ const url=URL.createObjectURL(blob),link=document.createElement('a');
+ link.href=url;link.download=filename(extension);link.textContent='Download '+link.download;
+ const row=document.createElement('p');row.appendChild(link);document.getElementById('downloads').prepend(row);
+ savedFiles.push({url,row});
+ if(savedFiles.length>5){const old=savedFiles.shift();URL.revokeObjectURL(old.url);old.row.remove();}
+ link.click();saveStatus.textContent='Download requested. If it did not start, tap the download link below.';
+}
+photoButton.onclick=()=>{
+ try{canvas.toBlob(blob=>downloadBlob(blob,'jpg'),'image/jpeg',.95);}
+ catch(error){saveStatus.textContent='Could not save photo: '+error.message;}
+};
+function stopRecording(reason){
+ if(recorder&&recorder.state==='recording'){
+  clearInterval(recordTimer);recordButton.disabled=true;
+  saveStatus.textContent=reason||'Preparing video download…';recorder.stop();
+ }
+}
+recordButton.onclick=()=>{
+ if(recorder&&recorder.state==='recording'){stopRecording();return;}
+ if(!hasFrame||!videoSupported)return;
+ let chunks=[],bytes=0,failed=false;
+ try{
+  running=true;toggleButton.textContent='Pause';
+  recordingStream=canvas.captureStream(20);
+  recorder=new MediaRecorder(recordingStream,{mimeType:mp4Mime,videoBitsPerSecond:1500000});
+  recorder.ondataavailable=event=>{
+   if(event.data.size){chunks.push(event.data);bytes+=event.data.size;}
+   if(bytes>=32*1024*1024)stopRecording('Recording size limit reached. Preparing download…');
+  };
+  recorder.onerror=()=>{failed=true;stopRecording('Recording failed. Preparing any available video…');};
+  recorder.onstop=()=>{
+   clearInterval(recordTimer);
+   const type=recorder.mimeType||mp4Mime;
+   recordingStream.getTracks().forEach(track=>track.stop());recordingStream=null;recorder=null;
+   recordButton.textContent='Record MP4';recordButton.classList.remove('active');
+   recordButton.disabled=false;toggleButton.disabled=false;
+   if(!type.toLowerCase().startsWith('video/mp4'))saveStatus.textContent='The browser did not produce MP4. Please use a browser with MP4 recording support.';
+   else if(chunks.length)downloadBlob(new Blob(chunks,{type}),'mp4');
+   else saveStatus.textContent=failed?'This browser could not record MP4. Try another browser with MP4 recording support.':'No video frames recorded. Please try again.';
+   chunks=[];
+  };
+  recorder.start(1000);startedRecording=performance.now();
+  toggleButton.disabled=true;recordButton.classList.add('active');recordButton.textContent='Stop & save MP4';
+  saveStatus.textContent='Recording…';
+  recordTimer=setInterval(()=>{
+   const seconds=Math.floor((performance.now()-startedRecording)/1000);
+   saveStatus.textContent='Recording MP4 '+seconds+' / 120 seconds — press Stop & save MP4 to download.';
+   if(seconds>=120)stopRecording();
+  },500);
+ }catch(error){
+  if(recordingStream)recordingStream.getTracks().forEach(track=>track.stop());
+  recordingStream=null;recorder=null;toggleButton.disabled=false;
+  saveStatus.textContent='Recording unavailable: '+error.message;
+ }
+};
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopRecording('Tab hidden. Saving recording…');});
+window.addEventListener('beforeunload',event=>{
+ if(recorder&&recorder.state==='recording'){event.preventDefault();event.returnValue='';}
+});
+const threshold=document.getElementById('threshold');
+threshold.oninput=()=>{document.getElementById('thresholdValue').textContent=threshold.value+'%';};
+document.getElementById('toggle').onclick=function(){running=!running;this.textContent=running?'Pause':'Resume';};
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// Budget the whole request/decode cycle; avoid adding a fixed delay to slow frames.
+// Limit preview requests to 20 FPS to keep network/CPU work bounded.
+const previewFrameMs=50;
+let previousFrameAt=0;
+async function live(){
+ while(true){
+  if(!running||document.hidden){previousFrameAt=0;await delay(250);continue;}
+  const started=performance.now();
+  try{
+   const response=await fetch('/capture?confidence='+Number(threshold.value)/100,{cache:'no-store',signal:AbortSignal.timeout(8000)});
+   if(!response.ok)throw new Error('Capture failed. Retrying…');
+   const detections=JSON.parse(response.headers.get('X-Detections')||'[]').filter(d=>d.score>=Number(threshold.value)/100);
+   document.getElementById('detectorStatus').textContent=response.headers.get('X-Detector-Status')||'Detector status unavailable; reload after flashing.';
+   const blob=await response.blob(),url=URL.createObjectURL(blob),image=new Image();
+   const transferMs=Math.round(performance.now()-started);
+   try{
+    image.src=url;await image.decode();
+    if(canvas.width!==image.naturalWidth||canvas.height!==image.naturalHeight){
+     canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+    }
+    ctx.drawImage(image,0,0);ctx.lineWidth=3;ctx.font='16px system-ui';
+    const cropSide=Math.min(canvas.width,canvas.height);
+    ctx.save();ctx.strokeStyle='#ffffff80';ctx.lineWidth=1;ctx.setLineDash([6,6]);
+    ctx.strokeRect((canvas.width-cropSide)/2,(canvas.height-cropSide)/2,cropSide,cropSide);ctx.restore();
+    for(const detection of detections){
+     const [x1,y1,x2,y2]=detection.box;
+     const x=Math.max(0,Math.min(canvas.width,x1)),y=Math.max(0,Math.min(canvas.height,y1));
+     const right=Math.max(x,Math.min(canvas.width,x2)),bottom=Math.max(y,Math.min(canvas.height,y2));
+     const label=`${detection.name||('Class '+detection.class)} · ${Math.round(detection.score*100)}%`;
+     ctx.strokeStyle='#52ff96';
+     if(detection.kind==='centroid'){
+      const cx=(x+right)/2,cy=(y+bottom)/2;
+      ctx.beginPath();ctx.arc(cx,cy,10,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx-15,cy);ctx.lineTo(cx+15,cy);ctx.moveTo(cx,cy-15);ctx.lineTo(cx,cy+15);ctx.stroke();
+     }else ctx.strokeRect(x,y,right-x,bottom-y);
+     const labelY=Math.max(22,y);ctx.fillStyle='#06452b';
+     ctx.fillRect(x,labelY-22,ctx.measureText(label).width+12,22);
+     ctx.fillStyle='#fff';ctx.fillText(label,x+6,labelY-5);
+    }
+    if(!hasFrame){
+     hasFrame=true;photoButton.disabled=false;recordButton.disabled=!videoSupported;
+     saveStatus.textContent=videoSupported?'Ready. Save a photo or record MP4.':'Photos are ready. This browser cannot record MP4 from the camera view. Open this page in another browser with MP4 recording support.';
+    }
+   }finally{URL.revokeObjectURL(url);}
+   const age=Number(response.headers.get('X-Detection-Age-Ms'));
+   const frameAt=performance.now();
+   const fps=previousFrameAt?`${(1000/(frameAt-previousFrameAt)).toFixed(1)} FPS`:'Measuring FPS…';
+   previousFrameAt=frameAt;
+   status.textContent=`${fps} · ${canvas.width}×${canvas.height} · ${transferMs} ms request · ${response.headers.get('X-Capture-Ms')||'?'} ms capture · ${response.headers.get('X-Inference-Ms')} ms AI · ${age<0?'AI warming up':age+' ms since detection frame'}`;
+   results.textContent=detections.length?detections.map(d=>`${d.name||('Class '+d.class)}: ${(d.score*100).toFixed(0)}%`).join(' | '):(age<0?'Preparing detector…':age>=2000?'Waiting for fresh detection…':'No objects detected');
+  }catch(error){previousFrameAt=0;status.textContent=error.message;await delay(1000);}
+  // Video uses latest completed detections; boxes can lag moving objects.
+  await delay(Math.max(0,previewFrameMs-(performance.now()-started)));
+ }
+}
+live();
+</script></body></html>
