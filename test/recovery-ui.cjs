@@ -40,6 +40,7 @@ const server=http.createServer((request,response)=>{
     await page.route('**/scan-wifi*',route=>route.fulfill({json:{networks:[],scanning:false}}));
     await page.route('**/api/**',async route=>{
       const endpoint=new URL(route.request().url()).pathname;
+      if(endpoint.startsWith('/api/notifications/'))return route.fulfill({status:401,json:{message:'Notification pairing has its own integration suite'}});
       if(endpoint.startsWith('/api/session/'))return route.fulfill({json:{ok:true,active:true}});
       if(endpoint==='/api/wifi/status')return route.fulfill({json:{connected:true,ssid:'Test network',connectionState:'connected'}});
       active++;maxActive=Math.max(active,maxActive);

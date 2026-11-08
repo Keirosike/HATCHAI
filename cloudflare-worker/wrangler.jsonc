@@ -1,0 +1,22 @@
+
+{
+  "name": "hatchai",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-07",
+  "ratelimits": [
+    { "name": "DEVICE_PAIRING_LIMITER", "namespace_id": "834310", "simple": { "limit": 12, "period": 60 } },
+    { "name": "DEVICE_STATUS_LIMITER", "namespace_id": "834311", "simple": { "limit": 120, "period": 60 } },
+    { "name": "DEVICE_CANCEL_LIMITER", "namespace_id": "834312", "simple": { "limit": 12, "period": 60 } },
+    { "name": "BROWSER_REDEEM_LIMITER", "namespace_id": "834313", "simple": { "limit": 5, "period": 60 } },
+    { "name": "BROWSER_REGISTER_LIMITER", "namespace_id": "834314", "simple": { "limit": 10, "period": 60 } },
+    { "name": "REGISTRATION_LIMITER", "namespace_id": "834315", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hatchai-devices",
+      "database_id": "ba5ac6e4-5fce-4201-bdb6-eeb4ebf3214d"
+    }
+  ]
+}

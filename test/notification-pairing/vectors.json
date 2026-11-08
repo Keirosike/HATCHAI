@@ -1,0 +1,27 @@
+[
+  {"name":"challenge","action":"sign","method":"POST","path":"/device/pairing/challenge","payload":{"requestId":"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","operation":"start","issuedAt":1794096000,"keyId":"test-key-v1","deviceId":"hatchai-inc01-controller"}},
+  {"name":"start","action":"sign","method":"POST","path":"/device/pairing/start","payload":{"sessionId":"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","deviceId":"hatchai-inc01-controller","challenge":"start:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","keyId":"test-key-v1"}},
+  {"name":"status","action":"sign","method":"POST","path":"/device/pairing/status","payload":{"pairingId":"ZYXWVUTSRQPONMLKJIHGFEDCBA0123456789abcdefg","sessionId":"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","deviceId":"hatchai-inc01-controller","challenge":"status:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","keyId":"test-key-v1"}},
+  {"name":"cancel","action":"sign","method":"POST","path":"/device/pairing/cancel","payload":{"pairingId":"ZYXWVUTSRQPONMLKJIHGFEDCBA0123456789abcdefg","sessionId":"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","deviceId":"hatchai-inc01-controller","challenge":"cancel:abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG","keyId":"test-key-v1"}},
+  {"name":"recursive signed data","action":"sign","method":"POST","path":"/device/pairing/challenge","payload":{"deviceId":"hatchai-inc01-controller","keyId":"test-key-v1","signature":"discarded","extra":{"z":[null,true,false,{"b":-7,"a":"line\n\"quoted\"\\slash"}],"a":9007199254740991}}},
+  {"name":"nested object and array","action":"canonical","payload":{"z":[3,{"c":false,"a":null},"text"],"a":{"y":2,"x":1}}},
+  {"name":"UTF16 property sorting","action":"canonical","payload":{"":1,"😀":2,"a":3,"é":"𝄞"}},
+  {"name":"integer property names sorted lexically","action":"canonical","payload":{"2":2,"10":10,"1":1}},
+  {"name":"escaping","action":"canonical","payload":{"text":"\b\f\n\r\t\u0001\"\\/  "}},
+  {"name":"negative zero and integral exponents","action":"canonical","payload":"[ -0, 1e3, 1.0, -9007199254740991, 9007199254740991 ]"},
+  {"name":"duplicate JSON members match JSON.parse","action":"canonical","payload":"{\"b\":1,\"a\":0,\"b\":2}"},
+  {"name":"fractional numbers deliberately rejected","action":"canonical","payload":"{\"x\":0.1}","reject":true},
+  {"name":"unsafe integers deliberately rejected","action":"canonical","payload":"9007199254740992","reject":true},
+  {"name":"trailing garbage","action":"canonical","payload":"{} trailing","reject":true},
+  {"name":"invalid exponent","action":"canonical","payload":"1e","reject":true},
+  {"name":"leading zero","action":"canonical","payload":"01","reject":true},
+  {"name":"embedded decoded NUL rejected","action":"canonical","payload":"\"\\u0000\"","reject":true},
+  {"name":"unpaired surrogate rejected","action":"canonical","payload":"\"\\ud800\"","reject":true},
+  {"name":"short key","action":"sign","method":"POST","path":"/device/pairing/challenge","keyLength":16,"payload":{"deviceId":"hatchai-inc01-controller","keyId":"test-key-v1"},"reject":true},
+  {"name":"long key","action":"sign","method":"POST","path":"/device/pairing/challenge","keyLength":33,"payload":{"deviceId":"hatchai-inc01-controller","keyId":"test-key-v1"},"reject":true},
+  {"name":"wrong method","action":"sign","method":"GET","path":"/device/pairing/challenge","payload":{"deviceId":"hatchai-inc01-controller","keyId":"test-key-v1"},"reject":true},
+  {"name":"unapproved path","action":"sign","method":"POST","path":"/chick-detected","payload":{"deviceId":"hatchai-inc01-controller","keyId":"test-key-v1"},"reject":true},
+  {"name":"camera identity","action":"sign","method":"POST","path":"/device/pairing/challenge","deviceId":"hatchai-inc01-cam01","payload":{"deviceId":"hatchai-inc01-cam01","keyId":"test-key-v1"},"reject":true},
+  {"name":"mismatched identity","action":"sign","method":"POST","path":"/device/pairing/challenge","payload":{"deviceId":"hatchai-inc01-cam02","keyId":"test-key-v1"},"reject":true},
+  {"name":"invalid key identifier","action":"sign","method":"POST","path":"/device/pairing/challenge","keyId":"bad/key","payload":{"deviceId":"hatchai-inc01-controller","keyId":"bad/key"},"reject":true}
+]

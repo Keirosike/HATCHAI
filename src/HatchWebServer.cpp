@@ -27,8 +27,8 @@ public:
 
 HatchWebServer::HatchWebServer(
   IncubatorController& controller,
-  NetworkManager& network
-) : _server(HatchConfig::WebServerPort), _controller(controller), _network(network) {}
+  NetworkManager& network,HatchPairing::NotificationRuntime& notifications
+) : _server(HatchConfig::WebServerPort), _controller(controller), _network(network),_notifications(notifications) {}
 
 void HatchWebServer::begin() {
   _chickBuzzer.begin();
@@ -43,8 +43,11 @@ void HatchWebServer::handleClient() {
 }
 
 void HatchWebServer::registerRoutes() {
-  const char* cameraHeaders[]={"X-Camera-Key"};
-  _server.collectHeaders(cameraHeaders,1);
+  const char* cameraHeaders[]={"X-Camera-Key","X-HatchAI-Session","Origin","Sec-Fetch-Site"};
+  _server.collectHeaders(cameraHeaders,4);
+  for(const char* operation:{"start","status","cancel"}){
+    _server.on(String("/api/notifications/")+operation,HTTP_POST,[this,operation](){handleNotificationPairing(operation);});
+  }
   _server.on("/api/camera",HTTP_GET,[this](){handleCameraStatus();});
   _server.on("/api/camera/event",HTTP_POST,[this](){handleCameraEvent();});
   _server.on("/api/data", HTTP_GET, [this]() { handleApiData(); });
@@ -81,6 +84,22 @@ void HatchWebServer::registerRoutes() {
   _server.on("/connect-wifi", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on(StaticFileUri(), HTTP_GET, [this]() { handleStaticFile(); });
   _server.onNotFound([this]() { sendNotFound(); });
+}
+
+void HatchWebServer::handleNotificationPairing(const char* operation){
+  _server.sendHeader("Cache-Control","no-store");_server.sendHeader("X-Content-Type-Options","nosniff");
+  const String token=_server.header("X-HatchAI-Session"),origin=_server.header("Origin");
+  const bool sameOrigin=(origin.length()==0||origin==String("http://")+_server.hostHeader())&&_server.header("Sec-Fetch-Site")!="cross-site";
+  const auto reply=[this](int code,const String& body){_server.send(code,"application/json",body);};
+  if(!HatchPairing::pairingRouteAllowed(hasActiveSession(),token.length(),token==_sessionToken,sameOrigin)){
+    reply(401,"{\"message\":\"Authenticated dashboard session required\"}");return;
+  }
+  if(_server.args()!=0){reply(400,"{\"message\":\"Arguments are not accepted\"}");return;}
+  if(!strcmp(operation,"start")&&!_notifications.requestStart()){
+    reply(409,"{\"message\":\"Pairing unavailable: check controller credentials, station internet, UTC time, and current pairing\"}");return;
+  }
+  if(!strcmp(operation,"cancel"))_notifications.requestCancel();
+  reply(!strcmp(operation,"status")?200:202,_notifications.statusJson());
 }
 
 void HatchWebServer::handleApiData() {

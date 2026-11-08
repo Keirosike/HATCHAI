@@ -49,6 +49,7 @@ async function wifiChecks(browser, origin) {
   await prepare(page, origin, { hatchaiWifi: { ssid: 'Old cache', connected: true, password: 'old-secret', baseUrl: origin } });
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/api/notifications/')) return route.fulfill({ status: 401, json: { message: 'Notification pairing is exercised by its dedicated integration suite' } });
     if (url.pathname.startsWith('/api/session/')) return route.fulfill({ json: { ok: true, active: true } });
     active++;
     maxActive = Math.max(maxActive, active);
@@ -230,6 +231,7 @@ async function dashboardChecks(browser, origin) {
   let maxActive = 0;
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/api/notifications/')) return route.fulfill({ status: 401, json: { message: 'Notification pairing has its own integration suite' } });
     if (url.pathname.startsWith('/api/session/')) return route.fulfill({ json: { ok: true, active: true } });
     active++;
     maxActive = Math.max(maxActive, active);
@@ -728,3 +730,4 @@ const server = http.createServer((request, response) => {
     server.close();
   }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });
+

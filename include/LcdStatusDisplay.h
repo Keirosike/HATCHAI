@@ -11,6 +11,7 @@ public:
   bool isReady() const;
   String statusText() const;
   void showBoot(const String& message);
+  void setNotificationPairingCode(const char* code);
   void showStatus(
     const SensorReading& reading,
     const String& upperBatch,
@@ -34,4 +35,5 @@ private:
   uint8_t _rows;
   bool _ready = false;
   bool _backlight = true;
+  char _pairingCode[17]={};
 };

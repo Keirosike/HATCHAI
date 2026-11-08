@@ -1,5 +1,6 @@
 #include "LcdStatusDisplay.h"
 #include <Wire.h>
+#include <cstring>
 
 namespace {
 constexpr uint8_t LcdRs = 0x01;
@@ -80,7 +81,14 @@ void LcdStatusDisplay::showStatus(
   printLine(0,readings);
   printLine(1,upperBatch);
   printLine(2,lowerBatch);
-  printLine(3,alarmText.length() ? alarmText : hatchDateText);
+  printLine(3,alarmText.length() ? alarmText : _pairingCode[0] ? String("PIN ")+_pairingCode : hatchDateText);
+}
+
+void LcdStatusDisplay::setNotificationPairingCode(const char* code){
+  std::memset(_pairingCode,0,sizeof(_pairingCode));
+  if(!code||std::strlen(code)!=16)return;
+  for(unsigned i=0;i<16;++i)if(!((code[i]>='A'&&code[i]<='Z')||(code[i]>='2'&&code[i]<='7')))return;
+  std::memcpy(_pairingCode,code,16);
 }
 
 void LcdStatusDisplay::send(uint8_t value, uint8_t mode) {

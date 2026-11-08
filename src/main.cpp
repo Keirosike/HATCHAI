@@ -10,6 +10,7 @@
 #include "OutputDevice.h"
 #include "RealTimeClock.h"
 #include "Sht40Sensor.h"
+#include "NotificationRuntime.h"
 
 Sht40Sensor environmentSensor(HatchConfig::Sht40Address);
 OutputDevice bulb1Relay(
@@ -51,7 +52,8 @@ IncubatorController incubator(
   lcdDisplay
 );
 NetworkManager network;
-HatchWebServer webServer(incubator, network);
+HatchPairing::NotificationRuntime notifications;
+HatchWebServer webServer(incubator, network, notifications);
 
 void setup() {
   incubator.initializeOutputs(); // safe relay levels before serial, buses or storage
@@ -67,10 +69,12 @@ void setup() {
 
   network.begin();
   webServer.begin();
+  notifications.begin(); // Optional cloud task; failures never gate local incubation.
 }
 
 void loop() {
   network.update();
+  notifications.updatePhysicalDisplay(lcdDisplay); // RAM snapshot only; no sockets or NVS.
   incubator.setNetworkStatus(network.statusText());
   incubator.update();
   webServer.handleClient();

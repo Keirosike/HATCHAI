@@ -76,47 +76,24 @@
       Disable Notifications
     </button>
 
-    <button id="copyToken" type="button">
-      Copy FCM Token
-    </button>
+    <p><label for="pairingCode">Physical LCD pairing code</label><br>
+      <input id="pairingCode" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="pairingHelp" style="font:inherit;min-height:44px;width:100%;box-sizing:border-box">
+    </p>
+    <p id="pairingHelp">Start pairing from the logged-in controller dashboard. Enter the 16-character code displayed only on its LCD within five minutes.</p>
+    <button id="redeem" type="button">Verify LCD Code</button>
 
     <p id="status" role="status" aria-live="polite">
       Checking HATCHAI notification registration...
     </p>
 
     <p>
-      Notifications are registered automatically when
-      browser permission has already been granted.
+      Each phone has its own browser signing key. Enable Notifications becomes available after pairing or verification of existing browser ownership.
     </p>
   </main>
 
   <script type="module" src="push.js"></script>
 
-  <script>
-    document.getElementById('copyToken')
-      .addEventListener('click', async () => {
 
-        const token =
-          localStorage.getItem('hatchaiPushToken');
-
-        if (!token) {
-          alert(
-            'No FCM token found. Enable notifications first.'
-          );
-          return;
-        }
-
-        try {
-          await navigator.clipboard.writeText(token);
-
-          alert('FCM token copied successfully!');
-
-        } catch (error) {
-          console.error('Copy failed:', error);
-
-          alert('Unable to copy FCM token.');
-        }
-      });
-  </script>
 </body>
 </html>
+

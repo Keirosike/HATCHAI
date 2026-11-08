@@ -1,0 +1,10 @@
+{
+  "name": "hatchai-notification-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:runtime": "node test/runtime-smoke.mjs && node test/runtime-hardening.mjs"
+  },
+  "engines": { "node": ">=22.13" }
+}

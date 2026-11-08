@@ -77,39 +77,9 @@ async function browserChecks(){
     await page.setViewportSize({width:375,height:812});
     await page.screenshot({path:path.join(output,'camera-mobile.png'),fullPage:true});
     console.log('Camera browser mocks passed: offline/reconnect, preview show/hide, detection, disconnect, responsive widths and JS errors.');
-    const push=await browser.newPage();const writes=[];
-    await push.addInitScript(()=>{
-      window.mockPermission='denied';
-      window.Notification={permission:'granted',requestPermission:async()=>window.mockPermission};
-      Object.defineProperty(navigator,'serviceWorker',{value:{register:async()=>({}),ready:Promise.resolve({})}});
-    });
-    await push.route('**/*',route=>{
-      const url=new URL(route.request().url());
-      if(url.hostname==='www.gstatic.com'){
-        const name=path.basename(url.pathname);
-        const modules={
-          'firebase-app.js':'export const initializeApp=()=>({});',
-          'firebase-messaging.js':'export const isSupported=async()=>true,getMessaging=()=>({}),getToken=async()=>"mock-push-token",deleteToken=async()=>true,onMessage=()=>()=>{};',
-          'firebase-auth.js':'const auth={currentUser:null};let listener=()=>{};export const getAuth=()=>auth,onAuthStateChanged=(a,fn)=>{listener=fn;fn(a.currentUser);},signInWithEmailAndPassword=async(a)=>{a.currentUser={email:"owner@example.test",getIdToken:async()=>"owner-id-token"};listener(a.currentUser);},signOut=async(a)=>{a.currentUser=null;listener(null);};'
-        };
-        return route.fulfill({contentType:'text/javascript',body:modules[name]||''});
-      }
-      if(url.pathname==='/api/register-push'){writes.push({body:route.request().postDataJSON(),authorization:route.request().headers().authorization});return route.fulfill({json:{ok:true}});}
-      const file=path.join(root,'public',url.pathname==='/'?'index.html':url.pathname);
-      return route.fulfill({path:file,contentType:path.extname(file)==='.js'?'text/javascript; charset=utf-8':'text/html; charset=utf-8'});
-    });
-    await push.goto('https://hatchai.test/');
-    await push.locator('#enable').click();await push.waitForFunction(()=>document.getElementById('status').textContent==='Sign in first.');
-    await push.locator('#email').fill('owner@example.test');await push.locator('#password').fill('mock-password');await push.locator('button[type=submit]').click();
-    await push.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Signed in.'));
-    await push.locator('#enable').click();await push.waitForFunction(()=>document.getElementById('status').textContent.includes('not granted'));
-    assert.equal(writes.length,0);
-    await push.evaluate(()=>window.mockPermission='granted');await push.locator('#enable').click();
-    await push.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Notifications enabled'));
-    assert.equal(writes[0].authorization,'Bearer owner-id-token');assert.equal(writes[0].body.token,'mock-push-token');
-    await push.locator('#disable').click();await push.waitForFunction(()=>document.getElementById('status').textContent.startsWith('Notifications disabled'));
-    assert.equal(writes[1].body.remove,true);
-    console.log('Push browser mocks passed: signed-out enrollment, login, denied/granted permission, authenticated enrollment and unsubscribe.');
+    // The shared-account LCD pairing architecture supersedes the old Firebase Auth phone fixture.
+    require('node:child_process').execFileSync(process.execPath,[path.join(root,'test/notification-pairing/browser-integration.cjs')],{stdio:'inherit',env:process.env});
   }finally{await browser.close();}
 }
 (async()=>{await cloudChecks();await browserChecks();})().catch(error=>{console.error(error);process.exitCode=1;});
+

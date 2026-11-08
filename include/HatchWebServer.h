@@ -5,16 +5,18 @@
 #include "IncubatorController.h"
 #include "NetworkManager.h"
 #include "ChickBuzzer.h"
+#include "NotificationRuntime.h"
 
 class HatchWebServer {
 public:
-  HatchWebServer(IncubatorController& controller, NetworkManager& network);
+  HatchWebServer(IncubatorController& controller, NetworkManager& network,HatchPairing::NotificationRuntime& notifications);
 
   void begin();
   void handleClient();
 
 private:
   void registerRoutes();
+  void handleNotificationPairing(const char* operation);
   void handleCameraEvent();
   void handleCameraStatus();
   String _cameraIp;
@@ -57,6 +59,7 @@ private:
   WebServer _server;
   IncubatorController& _controller;
   NetworkManager& _network;
+  HatchPairing::NotificationRuntime& _notifications;
   String _sessionToken;
   String _sessionUsername;
   unsigned long _sessionLastSeenMs = 0;

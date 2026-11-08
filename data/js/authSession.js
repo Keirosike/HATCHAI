@@ -117,6 +117,7 @@ const HatchAuthSession = (() => {
     saveSession(username);
     startHeartbeat();
 
+    sessionStorage.removeItem('hatchaiNotificationModal');
     return { ok: true, available: true };
   }
 
