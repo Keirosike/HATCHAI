@@ -9,9 +9,9 @@
 #include "NetworkManager.h"
 #include "OutputDevice.h"
 #include "RealTimeClock.h"
-#include "Sht40Sensor.h"
+#include "Dht22Sensor.h"
 
-Sht40Sensor environmentSensor(HatchConfig::Sht40I2cAddress);
+Dht22Sensor environmentSensor(HatchConfig::Dht22Pin);
 OutputDevice bulb1Relay(
   HatchConfig::Bulb1RelayPin,
   HatchConfig::RelayActiveHigh,

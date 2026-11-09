@@ -8,12 +8,12 @@
 #include "OutputDevice.h"
 #include "ReadingHistory.h"
 #include "RealTimeClock.h"
-#include "Sht40Sensor.h"
+#include "Dht22Sensor.h"
 
 class IncubatorController {
 public:
   IncubatorController(
-    Sht40Sensor& sensor,
+    Dht22Sensor& sensor,
     OutputDevice& heater,
     OutputDevice& bulb2,
     OutputDevice& fan,
@@ -65,7 +65,7 @@ private:
   String formatUptime(uint32_t timestampMs) const;
   uint32_t nextTurnInMs(uint32_t nowMs) const;
 
-  Sht40Sensor& _sensor;
+  Dht22Sensor& _sensor;
   OutputDevice& _heater;
   OutputDevice& _bulb2;
   OutputDevice& _fan;
