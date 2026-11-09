@@ -569,7 +569,7 @@ void HatchWebServer::handleCameraStatus() {
     ",\"chick\":"+HatchJson::boolValue(online && _cameraChick)+
     ",\"url\":"+HatchJson::quote(online ? String("http://")+_cameraIp : String(""))+
     ",\"notificationsUrl\":"+HatchJson::quote(HatchCamera::NotificationsUrl)+
-    ",\"buzzerEnabled\":"+HatchJson::boolValue(HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33)+
+    ",\"buzzerEnabled\":"+HatchJson::boolValue(HatchConfig::PassiveBuzzerPin==14 || HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33)+
     ",\"sequence\":"+String(_cameraSequence)+"}");
 }
 void HatchWebServer::handleCameraEvent() {

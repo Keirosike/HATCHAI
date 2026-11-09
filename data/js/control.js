@@ -1,4 +1,4 @@
-const EXPECTED_RELAY_PINS = { bulb: 27, fan: 14, turner: 25, turner2: 26 };
+const EXPECTED_RELAY_PINS = { bulb: 27, fan: -1, turner: 25, turner2: 26 };
 const HatchControl = {
   elements: {}, devices: {}, safety: {}, recovery: {}, profiles: [], batches: [],
   firmwareReady: false, isSyncing: false, isLoading: false, pollTimer: null,
@@ -43,7 +43,7 @@ const HatchControl = {
     });
     this.elements.autoModeSwitch?.addEventListener('change', () => this.syncControlSettings({ autoMode: this.elements.autoModeSwitch.checked }));
     this.devices.bulb.switch?.addEventListener('change', () => this.syncControlSettings({ bulbOn: this.devices.bulb.switch.checked }));
-    this.devices.fan.switch?.addEventListener('change',()=>this.syncControlSettings({fanOn:this.devices.fan.switch.checked}));
+
     [1, 2].forEach(motor => {
       const device = motor === 1 ? this.devices.turner : this.devices.turner2;
       device.switch?.addEventListener('change', () => device.switch.checked ?
@@ -82,7 +82,7 @@ const HatchControl = {
     if (duration === null || duration2 === null || !(temperature >= 30 && temperature <= 37.8) ||
         !(humidity >= 0 && humidity <= 100)) throw new Error('Use a 30–37.8°C target, 0–100% humidity and valid motor durations.');
     return { autoMode: this.elements.autoModeSwitch?.checked ?? true,
-      bulbOn: this.devices.bulb.switch?.checked ?? false, fanOn: this.devices.fan?.switch?.checked ?? true,
+      bulbOn: this.devices.bulb.switch?.checked ?? false, fanOn: true,
       turnerOn: false, turner2On: false, targetTemperature: temperature, targetHumidity: humidity,
       turnIntervalMinutes: Number(this.elements.turnInterval?.value) || 120,
       turnInterval2Minutes: Number(this.elements.turnInterval2?.value) || 120,
@@ -97,7 +97,7 @@ const HatchControl = {
     });
     if (this.elements.autoModeSwitch) this.elements.autoModeSwitch.disabled = blocked;
     if (this.elements.saveSettingsBtn) this.elements.saveSettingsBtn.disabled = formBlocked;
-    if (this.devices.fan.switch) this.devices.fan.switch.disabled=blocked || auto;
+    if (this.devices.fan.switch) this.devices.fan.switch.disabled=true;
     if (this.devices.bulb.switch) this.devices.bulb.switch.disabled=blocked || auto;
     [1, 2].forEach(motor => {
       const d = motor === 1 ? this.devices.turner : this.devices.turner2;
@@ -111,8 +111,8 @@ const HatchControl = {
     });
     this.setText('controlStatusBadge', auto ? 'Auto Mode: ON' : 'Auto Mode: OFF');
     this.setText('lockBadge', !this.firmwareReady ? 'Waiting for updated firmware' : auto ? 'Automatic heating' : 'Manual controls active');
-    this.setText('autoDescription', auto ? 'Automatic mode controls all outputs. Switch to Manual mode to use relay switches and roller Run/Stop.' :
-      'Manual heating and timed motor runs remain protected by temperature, sensor and lockdown limits. Fan OFF requests are overridden during heating or faults.');
+    this.setText('autoDescription', auto ? 'Automatic mode controls heating and rollers. The fan is powered directly.' :
+      'Manual heating and timed motor runs remain protected by temperature, sensor and lockdown limits. The fan is powered directly.');
   },
   rollerName(motor) { return motor === 1 ? 'Lower roller' : 'Upper roller'; },
   batchLabel(motor) {
@@ -140,7 +140,7 @@ const HatchControl = {
     if (typeof c.autoMode === 'boolean') this.elements.autoModeSwitch.checked = c.autoMode;
     Object.entries(this.devices).forEach(([key, d]) => {
       d.actualOn = c[`${key}On`] === true;
-      if (d.switch) d.switch.checked = !c.autoMode && key==='bulb' ? c.manualBulbOn ?? c.bulbOn : !c.autoMode && key==='fan' ? c.manualFanOn ?? c.fanOn : d.actualOn;
+      if (d.switch) d.switch.checked = !c.autoMode && key==='bulb' ? c.manualBulbOn ?? c.bulbOn : key==='fan' ? true : d.actualOn;
     });
     [1, 2].forEach(motor => {
       const d = motor === 1 ? this.devices.turner : this.devices.turner2;
@@ -157,7 +157,7 @@ const HatchControl = {
       c.heaterControl==='pid_tpo' ? `Temperature ${Number.isFinite(data.temperature) ? data.temperature.toFixed(1) : '--'}°C · Target ${Number(c.targetTemperature).toFixed(1)}°C · ${c.heaterCycleSeconds || 20}s relay window` : c.heaterControl==='thermostat_hysteresis' && Number.isFinite(low) && Number.isFinite(high) ?
         `ON below ${low.toFixed(1)}°C; OFF above ${high.toFixed(1)}°C` : 'Thermostat limits unavailable' :
       'Manual · relay restart protection applies');
-    this.setText('fanText', c.autoMode ? 'Automatic circulation' : c.manualFanOn===false && c.fanOn ? 'Requested OFF; running for heating or sensor/temperature protection' : `Manual request; relay ${c.fanOn ? 'ON' : 'OFF'}`);
+    this.setText('fanText', 'Direct power supply; no software control or rotation feedback');
     this.setText('heaterStatus', c.heaterStatus || 'Heating detail unavailable; update firmware');
     this.setText('bulbActualState', c.bulbOn === true ? 'ON' : 'OFF');
     this.setText('heaterDemandValue', c.autoMode === false ? 'Manual' :

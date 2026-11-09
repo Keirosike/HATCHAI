@@ -1,6 +1,13 @@
 # HATCHAI notification pairing Worker (local implementation)
 
-No deployment or device/Firebase integration is included. Existing `GET /`,
+Manual owner-only FCM testing is prepared locally: see
+[manual notification setup and Android checklist](../docs/MANUAL_TEST_NOTIFICATION.md).
+`POST /registration/test-notification` reuses the existing browser key and
+single-use nonce/version authorization. It never broadcasts or enables
+`/chick-detected`. The feature defaults to disabled and needs the documented
+server secret, rate binding and approved deployment. No new migration is added.
+
+No deployment is performed by the local implementation. Existing `GET /`,
 `GET /health`, the `DB` database identity, and disabled `POST /chick-detected`
 are preserved. The migration adds two tables; it never creates or rewrites
 `push_tokens`. Do not run production migrations or deploy without approval.
@@ -40,7 +47,7 @@ Changing/removing a device key requires a **new key ID**: remove the old ID to
 revoke pairing and browser authorization originating from it. Replacing the bytes
 under an existing ID alone does not revoke that ID's browser registrations.
 
-All six native rate-limit bindings in `wrangler.jsonc` are required; none are
+All seven native rate-limit bindings in `wrangler.jsonc` are required; none are
 isolate-local maps. Their namespace IDs must be reviewed for account-wide
 collisions before deployment. Cloudflare native limits are **approximate and
 location-scoped, not strict global quotas**. The 80-bit code space, atomic
@@ -54,6 +61,7 @@ consumption and signatures remain the authorization controls.
 | BROWSER_REDEEM_LIMITER | 5 | Per IP; limits manual code guesses |
 | BROWSER_REGISTER_LIMITER | 10 | Per IP; bounds initial grant/registration processing |
 | REGISTRATION_LIMITER | 30 | Independent per-operation IP keys and, after signature verification, per-operation registration keys; challenge traffic cannot consume unregister's budget |
+| TEST_NOTIFICATION_LIMITER | 3 | Separate IP and verified-owner budgets for manual self-tests; cannot consume pairing or unregister allowance |
 
 There is deliberately no common IP budget across these categories: that would
 reintroduce cancellation starvation. Invalid device signatures consume only their

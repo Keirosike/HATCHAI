@@ -59,11 +59,11 @@
 
 <body>
   <main>
-    <h1>HATCHAI Chick Alerts</h1>
+    <h1>HATCHAI Notifications</h1>
 
     <p>
-      Receive notifications when the ESP32-S3 camera
-      detects a newly hatched chick inside your incubator.
+      Pair this Android phone, enable notifications, then send a manual test.
+      Chick-detection notifications remain disabled.
     </p>
 
     <h3>Push Notifications</h3>
@@ -81,6 +81,8 @@
     </p>
     <p id="pairingHelp">Start pairing from the logged-in controller dashboard. Enter the 16-character code displayed only on its LCD within five minutes.</p>
     <button id="redeem" type="button">Verify LCD Code</button>
+    <button id="sendTest" type="button" disabled aria-describedby="testHelp">Send Test Notification</button>
+    <p id="testHelp">Available after this phone's registration is confirmed. Sends only to this phone; limited to three requests per minute. FCM acceptance does not prove Android displayed the alert.</p>
 
     <p id="status" role="status" aria-live="polite">
       Checking HATCHAI notification registration...

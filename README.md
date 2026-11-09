@@ -1,4 +1,6 @@
-# HatchAI ESP32 — SHT40 version
+# HatchAI ESP32 — current DHT22 wiring
+
+> Current confirmed wiring: [DHT22 on GPIO4, passive buzzer on GPIO14, direct-powered fan](docs/CURRENT_WIRING.md). This supersedes the historical SHT40/fan-relay instructions below.
 
 > Camera and Firebase push: [connection, notification setup and buzzer wiring](docs/CAMERA_PUSH.md). Sound defaults to disabled pending confirmation of a free GPIO.
 

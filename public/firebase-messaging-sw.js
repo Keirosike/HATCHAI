@@ -22,28 +22,21 @@ const messaging = firebase.messaging();
 
 // Handle messages received while HATCHAI is in the background.
 messaging.onBackgroundMessage((payload) => {
-  console.log("HATCHAI background message:", payload);
-
   // Notification messages are automatically displayed
   // by Firebase Messaging in the background.
   if (payload.notification) {
     return;
   }
 
-  // Handle data-only messages manually.
-  const title =
-    payload.data?.title || "HATCHAI — Chick Hatched!";
+  // Display only explicit manual-test data messages. Camera delivery stays disabled.
+  if (payload.data?.type !== "hatchai-manual-test") return;
+  const title = "HATCHAI Test Notification";
 
   const options = {
-    body:
-      payload.data?.body ||
-      "A newly hatched chick has been detected inside your incubator.",
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
-    tag: "hatchai-chick-detected",
-    renotify: true,
+    body: "Your HATCHAI notification system is working.",
+    tag: "hatchai-manual-test",
     data: {
-      url: payload.data?.url || "/"
+      url: "/"
     }
   };
 
@@ -54,10 +47,11 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const targetUrl = new URL(
+  const requestedUrl = new URL(
     event.notification.data?.url || "/",
     self.location.origin
-  ).href;
+  );
+  const targetUrl = requestedUrl.origin === self.location.origin ? requestedUrl.href : self.location.origin + "/";
 
   event.waitUntil(
     clients.matchAll({

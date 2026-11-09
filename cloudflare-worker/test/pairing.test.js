@@ -105,6 +105,137 @@ async function managementChallenge(s, e, lookup = { registrationId: e.registrati
   return s.post('/registration/challenge', b, true);
 }
 
+let testAccount;
+async function mockFcm(t, s, outcome = 'ok') {
+  // Ephemeral local test material only. No service account or Google service is used.
+  if (!testAccount) testAccount = (async () => {
+    const keys = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+    const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keys.privateKey));
+    return { keys, json: JSON.stringify({ type: 'service_account', project_id: 'hatchai-8d34c',
+      client_email: 'local-test@hatchai-8d34c.iam.gserviceaccount.com',
+      private_key: `-----BEGIN PRIVATE KEY-----\n${Buffer.from(der).toString('base64')}\n-----END PRIVATE KEY-----\n` }) };
+  })();
+  const account = await testAccount;
+  s.env.MANUAL_TEST_NOTIFICATIONS_ENABLED = 'true';s.env.FCM_SERVICE_ACCOUNT_JSON = account.json;
+  const original = globalThis.fetch, calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });assert.equal(options.redirect, 'manual');assert.ok(options.signal);
+    if (url === 'https://oauth2.googleapis.com/token') {
+      const jwt = options.body.get('assertion'), parts = jwt.split('.');
+      const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+      assert.equal(claims.scope, 'https://www.googleapis.com/auth/firebase.messaging');
+      assert.equal(claims.aud, url);assert.equal(claims.exp - claims.iat, 3600);
+      assert.ok(await crypto.subtle.verify('RSASSA-PKCS1-v1_5', account.keys.publicKey,
+        Buffer.from(parts[2], 'base64url'), new TextEncoder().encode(parts.slice(0, 2).join('.'))));
+      if (outcome === 'oauth-failure') return Response.json({ private_error: 'provider-secret-response' }, { status: 401 });
+      return Response.json({ access_token: 'local-ephemeral-oauth-token', expires_in: 3600 });
+    }
+    assert.equal(url, 'https://fcm.googleapis.com/v1/projects/hatchai-8d34c/messages:send');
+    if (outcome === 'timeout') throw new Error('provider-secret-response');
+    if (outcome === 'redirect') return new Response(null, { status: 302, headers: { Location: 'https://evil.invalid/' } });
+    if (outcome === 'oversized') return new Response('provider-secret-response'.repeat(2000));
+    if (outcome === 'failure') return Response.json({ error: 'provider-secret-response' }, { status: 500 });
+    return Response.json({ name: 'projects/hatchai-8d34c/messages/local-test' });
+  };
+  t.after(() => { globalThis.fetch = original; });return calls;
+}
+async function testRequest(s, e) {
+  const challenge = await managementChallenge(s, e);assert.equal(challenge.status, 200);
+  return e.phone.sign('/registration/test-notification', {
+    registrationId: e.registration.registrationId, nonce: challenge.body.nonce, version: challenge.body.version
+  });
+}
+
+test('manual test uses existing browser ownership and targets only its token with exact fixed content', async t => {
+  const s = setup(), one = await enrolled(s), two = await enrolled(s);
+  const until = one.registration.authorizedUntil, calls = await mockFcm(t, s);
+  const r = await s.post('/registration/test-notification', await testRequest(s, one), true);
+  assert.equal(r.status, 200);assert.deepEqual(r.body, { accepted: true, displayConfirmed: false });
+  const sends = calls.filter(c => c.url.includes('fcm.googleapis.com'));assert.equal(sends.length, 1);
+  const message = JSON.parse(sends[0].options.body).message;
+  assert.equal(message.token, one.token);assert.notEqual(message.token, two.token);
+  assert.deepEqual(message.notification, { title: 'HATCHAI Test Notification', body: 'Your HATCHAI notification system is working.' });
+  assert.equal(message.data.type, 'hatchai-manual-test');assert.equal(message.webpush.headers.TTL, '300');
+  assert.equal(s.sql('SELECT authorized_until FROM push_registration_auth WHERE registration_id=?', one.registration.registrationId)[0].authorized_until, until);
+  assert.equal(s.sql('SELECT COUNT(*) n FROM push_tokens WHERE enabled=1')[0].n, 2);
+  assert.ok(!JSON.stringify(r.body).includes(one.token));
+  assert.equal((await s.post('/chick-detected', {})).status, 503);
+});
+test('manual test rejects wrong browser key and injected destination or content', async t => {
+  const s = setup(), one = await enrolled(s), two = await enrolled(s), calls = await mockFcm(t, s);
+  const b = await testRequest(s, one);
+  const forged = await two.phone.sign('/registration/test-notification', b);
+  assert.equal((await s.post('/registration/test-notification', forged, true)).status, 401);
+  const injected = await one.phone.sign('/registration/test-notification', { registrationId: b.registrationId, nonce: b.nonce, version: b.version, token: two.token });
+  assert.equal((await s.post('/registration/test-notification', injected, true)).status, 400);
+  assert.equal(calls.length, 0);
+});
+test('manual test enforces origin, signed requests and configuration kill switch', async t => {
+  const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s), b = await testRequest(s, e);
+  assert.equal((await s.post('/registration/test-notification', b, false)).status, 403);
+  assert.equal((await s.post('/registration/test-notification', { ...b, signature: random() }, true)).status, 401);
+  s.env.MANUAL_TEST_NOTIFICATIONS_ENABLED = 'false';
+  assert.equal((await s.post('/registration/test-notification', b, true)).status, 503);
+  assert.equal(calls.length, 0);
+  assert.equal(s.sql('SELECT version FROM push_registration_auth')[0].version, 0);
+});
+test('simultaneous manual sends with one nonce have exactly one external send', async t => {
+  const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s), b = await testRequest(s, e);
+  const responses = await Promise.all([s.post('/registration/test-notification', b, true), s.post('/registration/test-notification', b, true)]);
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+  assert.equal((await s.post('/registration/test-notification', b, true)).status, 409);
+  assert.equal(calls.filter(c => c.url.includes('fcm.googleapis.com')).length, 1);
+});
+for (const reason of ['expired', 'revoked', 'disabled', 'expired-nonce', 'removed-controller-key']) {
+  test(`manual test rejects ${reason} authorization before contacting Google`, async t => {
+    const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s), b = await testRequest(s, e);
+    if (reason === 'expired') s.exec('UPDATE push_registration_auth SET authorized_until=unixepoch()-1,created_at=unixepoch()-100');
+    if (reason === 'revoked') s.exec('UPDATE push_registration_auth SET revoked_at=unixepoch()');
+    if (reason === 'disabled') s.exec('UPDATE push_tokens SET enabled=0');
+    if (reason === 'expired-nonce') s.exec('UPDATE push_registration_auth SET nonce_expires_at=unixepoch()-1');
+    if (reason === 'removed-controller-key') s.env.NOTIFICATION_DEVICE_KEYS = '{}';
+    assert.ok((await s.post('/registration/test-notification', b, true)).status >= 400);assert.equal(calls.length, 0);
+  });
+}
+for (const outcome of ['failure', 'timeout', 'redirect', 'oversized']) {
+  test(`FCM ${outcome} consumes authorization and is never retried or exposed`, async t => {
+    const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s, outcome), b = await testRequest(s, e);
+    const r = await s.post('/registration/test-notification', b, true);assert.equal(r.status, 502);
+    assert.ok(!JSON.stringify(r.body).includes('provider-secret-response'));
+    assert.equal((await s.post('/registration/test-notification', b, true)).status, 409);
+    assert.equal(calls.filter(c => c.url.includes('fcm.googleapis.com')).length, 1);
+    assert.equal(s.sql('SELECT enabled FROM push_tokens')[0].enabled, 1);
+  });
+}
+test('manual test has a separate rate budget and does not consume unregister allowance', async t => {
+  const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s);
+  for (let n = 0; n < 3; ++n) assert.equal((await s.post('/registration/test-notification', await testRequest(s, e), true)).status, 200);
+  assert.equal((await s.post('/registration/test-notification', await testRequest(s, e), true)).status, 429);
+  const c = await managementChallenge(s, e);
+  assert.equal((await s.post('/unregister', await e.phone.sign('/unregister', { registrationId: e.registration.registrationId,
+    nonce: c.body.nonce, version: c.body.version }), true)).status, 200);
+  assert.equal(calls.filter(c => c.url.includes('fcm.googleapis.com')).length, 3);
+});
+test('OAuth rejection is sanitized and never attempts an FCM send', async t => {
+  const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s, 'oauth-failure');
+  const r = await s.post('/registration/test-notification', await testRequest(s, e), true);
+  assert.equal(r.status, 502);assert.ok(!JSON.stringify(r.body).includes('provider-secret-response'));
+  assert.equal(calls.length, 1);assert.equal(calls.filter(c => c.url.includes('fcm.googleapis.com')).length, 0);
+});
+for (const operation of ['/registration/refresh', '/unregister']) {
+  test(`manual send racing ${operation} has one fenced transition`, async t => {
+    const s = setup(), e = await enrolled(s), calls = await mockFcm(t, s);
+    const testBody = await testRequest(s, e);
+    const manageBody = await e.phone.sign(operation, { registrationId: e.registration.registrationId,
+      nonce: testBody.nonce, version: testBody.version, ...(operation.endsWith('refresh') ? { token: e.token } : {}) });
+    const [send, manage] = await Promise.all([s.post('/registration/test-notification', testBody, true), s.post(operation, manageBody, true)]);
+    assert.deepEqual([send.status, manage.status].sort(), [200, 409]);
+    assert.equal(s.sql('SELECT version FROM push_registration_auth')[0].version, 1);
+    assert.equal(calls.filter(c => c.url.includes('fcm.googleapis.com')).length, send.status === 200 ? 1 : 0);
+  });
+}
+
 test('existing root/health, legacy records and disabled delivery are preserved', async () => {
   const s = setup(); s.exec(`INSERT INTO push_tokens(id,token) VALUES('legacy','legacy-token')`);
   for (const path of ['/', '/health']) {

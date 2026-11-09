@@ -25,7 +25,7 @@ const server=http.createServer((request,response)=>{
     const start=Date.UTC(2026,9,10,14,30)/1000,end=start+17*86400;
     const state={temperature:37.5,humidity:55,sensorValid:true,sensorAgeSeconds:1,sensorStatus:'Connected',wifiStatus:'Connected',
       rtcTime:'RTC unavailable',clockStatus:'Waiting for automatic clock sync',clockSyncNeeded:true,lcdStatus:'I2C responding',
-      relayPins:{bulb:27,fan:14,turner:25,turner2:26},
+      relayPins:{bulb:27,fan:-1,turner:25,turner2:26},
       control:{autoMode:true,manualBulbOn:false,manualFanOn:true,bulbOn:false,fanOn:true,turnerOn:false,turner2On:false,
         temperatureOffset:0,targetTemperature:37.5,targetHumidity:55,turnDurationSeconds:15,turnDuration2Seconds:15,
         turnIntervalMinutes:120,turnInterval2Minutes:120,heaterControl:'thermostat_hysteresis',heaterDutyPercent:null,heaterOnBelow:37.2,heaterOffAbove:37.8},
@@ -75,14 +75,14 @@ const server=http.createServer((request,response)=>{
     await page.locator('#componentsList div').nth(8).waitFor();
     check(await page.locator('#componentsDialog').evaluate(el=>el.open),'Component status opens as a modal');
     const text=await page.locator('#componentsList').innerText();
-    check(text.includes('SHT40')&&text.includes('37.5 C / 55%')&&text.includes('DS3231')&&text.includes('I2C responding'),'Modal reports sensor, RTC and LCD communication');
+    check(text.includes('DHT22')&&text.includes('37.5 C / 55%')&&text.includes('DS3231')&&text.includes('I2C responding'),'Modal reports sensor, RTC and LCD communication');
     check(text.includes('no contact feedback')&&text.includes('no airflow feedback'),'Relay commands are distinguished from actual load feedback');
     const detection=label=>page.locator('#componentsList > div').filter({has:page.locator('dt',{hasText:label})}).locator('dd > strong').innerText();
-    check((await Promise.all(['SHT40','SD card','RTC (DS3231)','LCD'].map(detection))).every(value=>value==='Detected'),
+    check((await Promise.all(['DHT22','SD card','RTC (DS3231)','LCD'].map(detection))).every(value=>value==='Detected'),
       'Responding sensor, SD, RTC and LCD show simple Detected messages');
     check(text.includes('recovery pending')&&!text.includes('Recovery verified'),'Detected card is distinguished from a verified checkpoint');
     state.sensorRetrying=true;state.sensorConsecutiveFailures=2;state.sensorAgeSeconds=9;await refresh();
-    check((await page.locator('#componentsList').innerText()).includes('Retrying after 2 failed read(s); last valid reading:'),'Transient SHT40 errors explicitly distinguish retained readings from a new sample');
+    check((await page.locator('#componentsList').innerText()).includes('Retrying after 2 failed read(s); last valid reading:'),'Transient DHT22 errors explicitly distinguish retained readings from a new sample');
     state.sensorRetrying=false;state.sensorConsecutiveFailures=0;
     check(text.includes('Preparing automatic save'),'Pending recovery exposes the real firmware reason below Detected');
     state.recovery.message='No valid recovery snapshot; existing files preserved for service. Check clock and card.';
@@ -122,10 +122,10 @@ const server=http.createServer((request,response)=>{
     check((await page.locator('#componentsList').innerText()).includes('SD driver: CSV append/readback failed; record not durable'),'SD driver error remains visible alongside a checkpoint failure');
     check(await detection('SD card')==='Detected','A checkpoint write failure does not incorrectly label a detected card missing');
     state.recovery.sdAvailable=false;state.safety.rtcTrusted=false;state.clockStatus='Not detected';state.lcdStatus='Not detected';
-    state.sensorValid=false;state.sensorError='SHT40 read failed';await refresh();
+    state.sensorValid=false;state.sensorError='DHT22 read failed';await refresh();
     check(await detection('SD card')==='Not detected / unavailable'&&await detection('RTC (DS3231)')==='Not detected'&&await detection('LCD')==='Not detected',
       'Unavailable hardware shows Not detected instead of a successful startup message');
-    check(await detection('SHT40')==='Not responding','Failed SHT40 measurements show Not responding');
+    check(await detection('DHT22')==='Not responding','Failed DHT22 measurements show Not responding');
     state.recovery.sdAvailable=true;state.safety.rtcTrusted=true;state.clockStatus='Ready';state.lcdStatus='I2C responding';state.sensorValid=true;
     state.recovery.checkpointFault=false;state.recovery.logging=true;state.recovery.positionHoldMask=3;
     state.safety.batches.forEach(b=>{b.positionHold=true;b.status='Verify motor position before resuming';});await refresh();

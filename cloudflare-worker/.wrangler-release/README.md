@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "hatchai" generated at 2026-11-09T06:53:06.482Z.

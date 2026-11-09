@@ -15,7 +15,7 @@ public:
     JsonObject c=document.createNestedObject("config");
     c["temperatureMilliC"]=s.temperatureMilli; c["humidityMilliPercent"]=s.humidityMilli;
     c["offsetMilliC"]=s.offsetMilli; c["automatic"]=s.automatic; c["manualHeatRequested"]=s.manualHeatRequested;
-    c["fanAlwaysOn"]=false; c["fanPolicy"]="auto_or_safety_override"; c["heaterControl"]="pid_tpo";
+    c["fanAlwaysOn"]=true; c["fanPolicy"]="direct_power_no_feedback"; c["heaterControl"]="pid_tpo";
     c["hysteresisMilliC"]=int32_t(HatchConfig::HeaterHysteresisC*1000);
     c["windowMs"]=HatchConfig::HeaterWindowMs; c["kp"]=HatchConfig::HeaterKp; c["ki"]=HatchConfig::HeaterKi; c["kd"]=HatchConfig::HeaterKd;
     c["minimumOnMs"]=HatchConfig::HeaterMinimumOnMs; c["minimumOffMs"]=HatchConfig::HeaterMinimumOffMs;
@@ -79,7 +79,8 @@ public:
     if(!take(c["temperatureMilliC"],s.temperatureMilli) || !take(c["humidityMilliPercent"],s.humidityMilli) ||
        !take(c["offsetMilliC"],s.offsetMilli) || !take(c["automatic"],s.automatic) ||
        !take(c["manualHeatRequested"],s.manualHeatRequested) || (version==1 ? c["fanAlwaysOn"]!=true :
-         c["fanAlwaysOn"]!=false || c["fanPolicy"]!="auto_or_safety_override") ||
+         !((c["fanAlwaysOn"]==false && c["fanPolicy"]=="auto_or_safety_override") ||
+           (c["fanAlwaysOn"]==true && c["fanPolicy"]=="direct_power_no_feedback" && c["fanPin"]==-1))) ||
        !heaterConfigurationCompatible(c) ||
        c["inhibitMilliC"]!=int32_t(HatchConfig::HeaterInhibitC*1000) || c["resumeMilliC"]!=int32_t(HatchConfig::HeaterResumeC*1000) ||
        c["highMilliC"]!=int32_t(HatchConfig::HighTemperatureC*1000) || c["criticalMilliC"]!=int32_t(HatchConfig::CriticalTemperatureC*1000) ||
@@ -87,7 +88,7 @@ public:
        !c["sensorStaleMs"].is<uint32_t>() || !c["sensorIntervalMs"].is<uint32_t>() ||
        !HatchRecovery::sensorTimingCompatible(c["sensorIntervalMs"].as<uint32_t>(),c["sensorStaleMs"].as<uint32_t>()) ||
        c["lowWarmupMs"]!=HatchConfig::LowWarningWarmupMs || c["lowDelayMs"]!=HatchConfig::LowWarningDelayMs ||
-       c["fanPin"]!=HatchConfig::FanRelayPin || c["heaterPin"]!=HatchConfig::Bulb1RelayPin ||
+       !c["fanPin"].is<int>() || !HatchConfig::compatibleRecoveryFanPin(c["fanPin"].as<int>()) || c["heaterPin"]!=HatchConfig::Bulb1RelayPin ||
        (!oldRollerMap && !HatchConfig::currentRollerPins(lowerPin,upperPin)) || c["relayActiveHigh"]!=HatchConfig::RelayActiveHigh ||
        c["lockdownAfterSeconds"]!=(version==1 ? 18UL*86400 : HatchConfig::LockdownAfterSeconds) ||
        c["sensorLogIntervalMs"]!=HatchConfig::SensorLogIntervalMs ||

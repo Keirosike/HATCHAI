@@ -1,9 +1,10 @@
 import { ApiError, need, random, protectedHash, verifyController, verifyBrowser,
   publicKey, pairingCode, readBody, deviceSecret, requireControllerRole } from './security.js';
+import { prepareTestDelivery } from './test-notification.js';
 
 const ORIGIN = 'https://hatchai-8d34c.web.app';
 const DAY90 = 90 * 86400;
-const browserPaths = new Set(['/pairing/redeem', '/register', '/registration/challenge', '/registration/refresh', '/unregister']);
+const browserPaths = new Set(['/pairing/redeem', '/register', '/registration/challenge', '/registration/refresh', '/unregister', '/registration/test-notification']);
 const devicePaths = new Set(['/device/pairing/challenge', '/device/pairing/start', '/device/pairing/status', '/device/pairing/cancel']);
 const now = () => Math.floor(Date.now() / 1000);
 const stmt = (env, sql, ...args) => env.DB.prepare(sql).bind(...args);
@@ -122,7 +123,7 @@ async function manage(env, path, b) {
   need(auth && auth.revoked_at === null && auth.authorized_until > now(), 401, 'Unauthorized');
   liveDevice(env, auth); await verifyBrowser(JSON.parse(auth.browser_public_key_jwk), path, b);
   // Separate keys per operation: challenge requests cannot starve unregister.
-  await limit(env, 'REGISTRATION_LIMITER', `owner:${path}:${auth.registration_id}`);
+  await limit(env, path === '/registration/test-notification' ? 'TEST_NOTIFICATION_LIMITER' : 'REGISTRATION_LIMITER', `owner:${path}:${auth.registration_id}`);
   if (path === '/registration/challenge') {
     freshness(b);
     await stmt(env, `UPDATE push_registration_auth SET request_nonce=?,nonce_expires_at=unixepoch()+60
@@ -134,6 +135,24 @@ async function manage(env, path, b) {
       expiresAt: current.nonce_expires_at, version: current.version, authorizedUntil: current.authorized_until };
   }
   need(Number.isSafeInteger(b.version) && b.version >= 0); id(b.nonce);
+  if (path === '/registration/test-notification') {
+    need(Object.keys(b).every(key => ['registrationId', 'nonce', 'version', 'signature'].includes(key)));
+    const send = await prepareTestDelivery(env);
+    const fence = random();
+    const results = await env.DB.batch([
+      stmt(env, `UPDATE push_registration_auth SET request_nonce=?,nonce_expires_at=unixepoch()+60,
+        version=version+1,updated_at=unixepoch() WHERE registration_id=? AND request_nonce=? AND version=?
+        AND nonce_expires_at>unixepoch() AND revoked_at IS NULL AND authorized_until>unixepoch()
+        AND EXISTS(SELECT 1 FROM push_tokens t WHERE t.id=registration_id AND t.enabled=1)`,
+        fence, auth.registration_id, b.nonce, b.version),
+      stmt(env, `SELECT t.token FROM push_tokens t JOIN push_registration_auth a ON a.registration_id=t.id
+        WHERE a.registration_id=? AND a.request_nonce=? AND a.version=? AND a.revoked_at IS NULL
+        AND a.authorized_until>unixepoch() AND t.enabled=1`, auth.registration_id, fence, b.version+1)
+    ]);
+    need(changes(results[0]) === 1 && results[1].results.length === 1, 409, 'Expired or consumed authorization');
+    // No fan-out, token in response, implicit retries, or registration lifetime extension.
+    return await send(results[1].results[0].token);
+  }
   if (path === '/registration/refresh') tokenInput(b);
   const nextNonce = random(), revoked = path === '/unregister';
   const gate = `EXISTS(SELECT 1 FROM push_registration_auth a WHERE a.registration_id=? AND a.request_nonce=? AND a.version=?)`;
@@ -180,7 +199,8 @@ export async function pairingFetch(request, env) {
       return json(path.endsWith('/challenge') ? await pairingChallenge(env, body) : await deviceOperation(env, path, body));
     }
     const binding = path === '/pairing/redeem' ? 'BROWSER_REDEEM_LIMITER' :
-      path === '/register' ? 'BROWSER_REGISTER_LIMITER' : 'REGISTRATION_LIMITER';
+      path === '/register' ? 'BROWSER_REGISTER_LIMITER' :
+      path === '/registration/test-notification' ? 'TEST_NOTIFICATION_LIMITER' : 'REGISTRATION_LIMITER';
     await limit(env, binding, `ip:${path}:${ip}`);
     if (path === '/pairing/redeem') return json(await redeem(env, body));
     if (path === '/register') return json(await register(env, body));

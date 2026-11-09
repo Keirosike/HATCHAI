@@ -21,6 +21,7 @@ constexpr long ClockUtcOffsetSeconds = 8L*3600; // Asia/Manila; RTC stores local
 constexpr uint8_t LcdI2cAddress = 0x27;
 constexpr uint8_t Sht40Address = 0x44;
 constexpr uint32_t Sht40ConversionMs = 10;
+constexpr uint8_t Dht22Pin = 4;
 constexpr uint8_t LcdColumns = 20;
 constexpr uint8_t LcdRows = 4;
 
@@ -41,14 +42,16 @@ constexpr uint8_t SdLogArchives = 3;
 constexpr uint16_t RecoveryMaxJsonBytes = 4096;
 constexpr uint8_t DefaultIncubationDays = 21;
 
-// Corrected physical layout: IN1 fan, IN2 bulb, IN3 upper, IN4 lower.
-constexpr uint8_t FanRelayPin = 14;
+// Fan is powered directly; -1 must never be passed to a GPIO function.
+constexpr int FanRelayPin = -1;
+// Accept the previous fan-pin metadata when reading CRC-checked recovery records.
+// Hardware outputs always use the current configuration, never the saved pin.
+constexpr bool compatibleRecoveryFanPin(int pin) { return pin==FanRelayPin || pin==14; }
 constexpr uint8_t Bulb1RelayPin = 27;
 constexpr uint8_t TurnerRelayPin = 25; // lower roller
 constexpr uint8_t Turner2RelayPin = 26; // upper roller
 constexpr uint8_t RollerMappingVersion = 2;
-// Disabled until passive-buzzer wiring is confirmed. GPIO25 remains the lower roller.
-constexpr int PassiveBuzzerPin = -1; // Only free GPIO32 or GPIO33 supported by ChickBuzzer.
+constexpr int PassiveBuzzerPin = 14;
 constexpr unsigned BuzzerToneHz = 2200;
 constexpr bool legacyRollerPins(uint8_t lower,uint8_t upper) { return lower==26 && upper==25; }
 constexpr bool currentRollerPins(uint8_t lower,uint8_t upper) { return lower==TurnerRelayPin && upper==Turner2RelayPin; }

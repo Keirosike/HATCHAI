@@ -17,7 +17,7 @@ async function scenario(name, run, negativeRoleTests = false) {
   }
   const options = {
     modulesRoot: fileURLToPath(new URL('../src/', import.meta.url)),
-    modules: ['index.js', 'pairing.js', 'security.js', 'retention.js'].map(name => ({
+    modules: ['index.js', 'pairing.js', 'security.js', 'retention.js', 'test-notification.js', 'online-api.js', 'supabase-session.js'].map(name => ({
       type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url))
     })),
     compatibilityDate: config.compatibility_date,

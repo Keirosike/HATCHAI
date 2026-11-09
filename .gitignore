@@ -8,6 +8,7 @@
 /backups/
 /release/
 /dist/
+/public/shared/
 
 # Camera integration build and local Firebase credentials
 /build-hatch-link/
@@ -16,3 +17,10 @@
 /functions/.secret.local
 /functions/camera-secret.txt
 /include/CameraLinkSecrets.h
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example

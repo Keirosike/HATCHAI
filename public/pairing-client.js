@@ -59,7 +59,8 @@ export class PairingClient {
         }
         throw new Error(response.status === 429 ? 'Too many attempts. Wait before retrying.' :
           response.status === 409 ? 'Registration conflict. Existing browser ownership was preserved.' :
-          response.status === 401 || response.status === 403 ? 'Pairing or browser authorization is unavailable or expired.' : 'Notification server unavailable. No registration success has been confirmed.');
+          response.status === 401 || response.status === 403 ? 'Pairing or browser authorization is unavailable or expired.' :
+          path === '/registration/test-notification' ? 'Test notification unavailable or unconfirmed. Check this phone before retrying.' : 'Notification server unavailable. No registration success has been confirmed.');
       }
       const reader = response.body?.getReader();if (!reader) throw new Error('Invalid notification server response.');
       const chunks = [];let length = 0;
@@ -106,6 +107,14 @@ export class PairingClient {
     owner.registrationId = auth.registrationId;owner.authorizedUntil = auth.authorizedUntil;await this.store.put(owner);
     // Reconciliation establishes ownership only. Refresh with the current FCM token still confirms enabled registration.
     this.grant = null;return auth;
+  }
+  async sendTest() {
+    const owner = await this.record();const auth = await this.challenge(owner);
+    const result = await this.post('/registration/test-notification', {
+      registrationId: auth.registrationId, nonce: auth.nonce, version: auth.version
+    }, owner);
+    if (result.accepted !== true || result.displayConfirmed !== false) throw new Error('FCM acceptance was not confirmed. Check this phone before retrying.');
+    return result;
   }
   async unregister() {
     const owner = await this.record();const auth = await this.challenge(owner);

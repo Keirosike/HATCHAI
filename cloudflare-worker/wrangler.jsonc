@@ -3,14 +3,23 @@
   "name": "hatchai",
   "main": "src/index.js",
   "compatibility_date": "2026-11-07",
+  "preview_urls": false,
+  "observability": { "enabled": true, "logs": { "enabled": true } },
   "ratelimits": [
     { "name": "DEVICE_PAIRING_LIMITER", "namespace_id": "834310", "simple": { "limit": 12, "period": 60 } },
     { "name": "DEVICE_STATUS_LIMITER", "namespace_id": "834311", "simple": { "limit": 120, "period": 60 } },
     { "name": "DEVICE_CANCEL_LIMITER", "namespace_id": "834312", "simple": { "limit": 12, "period": 60 } },
     { "name": "BROWSER_REDEEM_LIMITER", "namespace_id": "834313", "simple": { "limit": 5, "period": 60 } },
     { "name": "BROWSER_REGISTER_LIMITER", "namespace_id": "834314", "simple": { "limit": 10, "period": 60 } },
-    { "name": "REGISTRATION_LIMITER", "namespace_id": "834315", "simple": { "limit": 30, "period": 60 } }
+    { "name": "REGISTRATION_LIMITER", "namespace_id": "834315", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TEST_NOTIFICATION_LIMITER", "namespace_id": "834316", "simple": { "limit": 3, "period": 60 } }
   ],
+  "keep_vars": true,
+  "vars": {
+    "MANUAL_TEST_NOTIFICATIONS_ENABLED": "false",
+    "SUPABASE_URL": "https://dihufafcztqjuudjeqdm.supabase.co",
+    "ONLINE_ALLOWED_ORIGINS": "http://127.0.0.1:8080,https://hatchai-8d34c.web.app,https://myhatchai.web.app"
+  },
   "triggers": { "crons": ["* * * * *"] },
   "d1_databases": [
     {

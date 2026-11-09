@@ -512,7 +512,7 @@ async function controlChecks(browser,origin) {
   const batches=[1,2].map(i=>({id:'physical-'+i,label:'FLOCK-'+i,name:'Chicken Batch '+i,roller:i,count:10,startDate:'2026-10-10',laidDate:'2026-10-09',status:'Active'}));
   await prepare(page,origin,{hatchai_batches:batches});
   const state={temperature:37.2,humidity:55,sensorValid:true,sensorAgeSeconds:0,wifiStatus:'Connected',rtcTime:'2026-10-20 12:00:00',clockStatus:'Ready',
-    relayPins:{bulb:27,fan:14,turner:25,turner2:26},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
+    relayPins:{bulb:27,fan:-1,turner:25,turner2:26},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
     control:{autoMode:true,bulbOn:false,manualBulbOn:false,fanOn:true,manualFanOn:true,turnerOn:false,turner2On:false,
       turnDurationSeconds:15,turnDuration2Seconds:15,turnIntervalMinutes:120,turnInterval2Minutes:120,targetTemperature:37.5,targetHumidity:55,
       heaterStatus:'Heater OFF: relay restart delay, 24 s remaining',heaterControl:'pid_tpo',heaterDutyPercent:35,heaterCycleSeconds:20,heaterOnBelow:37.2,heaterOffAbove:37.8},
@@ -536,7 +536,7 @@ async function controlChecks(browser,origin) {
         if(body.fanOn!==undefined)state.control.manualFanOn=body.fanOn==='true';
         for(const key of ['turnDurationSeconds','turnDuration2Seconds','turnIntervalMinutes','turnInterval2Minutes'])if(body[key]!==undefined)state.control[key]=Number(body[key]);
         state.control.bulbOn=state.control.manualBulbOn&&!state.safety.critical&&state.safety.sensorReady;
-        state.control.fanOn=state.control.autoMode||state.control.manualFanOn||state.control.bulbOn||state.safety.critical||!state.safety.sensorReady;
+        state.control.fanOn=true;
       } else if(endpoint==='/api/turn') {
         if(state.control.autoMode)return await route.fulfill({status:409,json:{message:'Switch to Manual mode before controlling rollers.'}});
         writes.push({kind:'turn',...body});
@@ -566,15 +566,14 @@ async function controlChecks(browser,origin) {
   await page.evaluate(()=>HatchControl.stopEggs(1));
   check(writes.length===autoWrites,'Programmatic manual roller handlers do not write while automatic mode is active');
   await page.locator('#autoModeSwitch').uncheck();await settled();
-  check(await page.locator('#bulbSwitch').isEnabled()&&await page.locator('#fanSwitch').isEnabled(),'Manual mode enables bulb and fan controls');
+  check(await page.locator('#bulbSwitch').isEnabled()&&await page.locator('#fanSwitch').isDisabled(),'Manual mode enables bulb control while direct-powered fan stays read-only');
   check(await page.locator('#bulbSwitch').evaluate(el=>el.getBoundingClientRect().width>=44),'Slider checkbox has a real pointer hit target');
   await page.locator('#bulbSwitch').check();await settled();
   check(!state.control.autoMode&&state.control.bulbOn,'A Manual-mode bulb request updates the commanded relay');
   await page.locator('#bulbSwitch').uncheck();await settled();
-  await page.locator('#fanSwitch').uncheck();await settled();
-  check(!state.control.fanOn,'Manual fan OFF is supported while heat is OFF and readings are safe');
+  check(await page.locator('#fanSwitch').isDisabled() && state.control.fanOn,'Direct-powered fan cannot be switched off through the dashboard');
   await page.locator('#bulbSwitch').check();await settled();
-  check(state.control.fanOn&&(await page.locator('#fanText').innerText()).includes('protection'),'Fan override remains visible during heating');
+  check(state.control.fanOn&&(await page.locator('#fanText').innerText()).includes('Direct power supply'),'Direct-powered fan remains identified during heating');
   await page.locator('#bulbSwitch').uncheck();await settled();
   state.recovery.ready=false;state.recovery.logging=false;state.recovery.checkpointFault=true;
   state.control.autoMode=true;

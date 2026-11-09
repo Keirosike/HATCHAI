@@ -1,6 +1,7 @@
 
 import { pairingFetch } from './pairing.js';
 import { cleanup } from './retention.js';
+import { onlineFetch } from './online-api.js';
 
 export default {
   async scheduled(_event, env, ctx) {
@@ -12,6 +13,7 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/online/incubators') return onlineFetch(request, env);
 
     const json = (data, status = 200) =>
       Response.json(data, {

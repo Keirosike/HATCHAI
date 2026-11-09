@@ -6,9 +6,10 @@
 constexpr uint32_t Interval = HatchConfig::DefaultTurnIntervalMinutes * 60000UL;
 constexpr uint32_t Pulse = HatchConfig::TurnerPulseMs;
 static_assert(Interval == 7200000UL && Pulse == 120000UL, "Requested timing defaults");
-static_assert(HatchConfig::FanRelayPin == 14 && HatchConfig::Bulb1RelayPin == 27 &&
+static_assert(HatchConfig::FanRelayPin == -1 && HatchConfig::PassiveBuzzerPin == 14 &&
+              HatchConfig::Dht22Pin == 4 && HatchConfig::Bulb1RelayPin == 27 &&
               HatchConfig::TurnerRelayPin == 25 && HatchConfig::Turner2RelayPin == 26,
-              "Requested IN1-IN4 mapping");
+              "Confirmed DHT22, direct-powered fan, buzzer and roller mapping");
 static_assert(!HatchConfig::RelayActiveHigh, "Preserve active-low relay polarity");
 constexpr uint32_t Boot = 1000;
 constexpr TurnCycle Idle;

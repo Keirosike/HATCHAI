@@ -6,7 +6,7 @@
 class ChickBuzzer {
 public:
   void begin() {
-    _enabled=HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33;
+    _enabled=HatchConfig::PassiveBuzzerPin==14 || HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33;
     if(!_enabled) return;
     pinMode(HatchConfig::PassiveBuzzerPin,OUTPUT);
     digitalWrite(HatchConfig::PassiveBuzzerPin,LOW);

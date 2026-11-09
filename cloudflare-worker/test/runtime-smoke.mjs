@@ -8,15 +8,34 @@ import { random, b64, hmacKey, signingMessage } from '../src/security.js';
 const require = createRequire(import.meta.url);
 const { Miniflare, convertV4MiniflareOptions } = require(process.env.HATCHAI_MINIFLARE || 'miniflare');
 const secret = random();
+const rsa = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+  publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const pem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', rsa.privateKey)).toString('base64')}\n-----END PRIVATE KEY-----\n`;
+let googleCalls = 0; const sentMessages = [];
 const options = {
   modulesRoot: fileURLToPath(new URL('../src/', import.meta.url)),
-  modules: ['index.js', 'pairing.js', 'security.js', 'retention.js'].map(name => ({
+  modules: ['index.js', 'pairing.js', 'security.js', 'retention.js', 'test-notification.js', 'online-api.js', 'supabase-session.js'].map(name => ({
     type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url))
   })),
   compatibilityDate: '2026-11-07',
   d1Databases: { DB: 'hatchai-isolated-pairing-test' },
   d1Persist: false,
-  bindings: { PAIRING_HASH_KEY: random(), NOTIFICATION_DEVICE_KEYS: JSON.stringify({ 'hatchai-inc01-controller': { key1: secret } }) },
+  bindings: { PAIRING_HASH_KEY: random(), NOTIFICATION_DEVICE_KEYS: JSON.stringify({ 'hatchai-inc01-controller': { key1: secret } }),
+    MANUAL_TEST_NOTIFICATIONS_ENABLED: 'true', FCM_SERVICE_ACCOUNT_JSON: JSON.stringify({ type: 'service_account',
+      project_id: 'hatchai-8d34c', client_email: 'runtime-test@hatchai-8d34c.iam.gserviceaccount.com', private_key: pem }) },
+  // Deny all real outbound traffic. Workerd signs real RSA JWTs against a fake provider.
+  outboundService: async request => {
+    ++googleCalls;
+    if (request.url === 'https://oauth2.googleapis.com/token') {
+      const fields = new URLSearchParams(await request.text());const parts = fields.get('assertion').split('.');
+      assert.ok(await crypto.subtle.verify('RSASSA-PKCS1-v1_5', rsa.publicKey, Buffer.from(parts[2], 'base64url'),
+        new TextEncoder().encode(parts.slice(0, 2).join('.'))));
+      return Response.json({ access_token: 'isolated-runtime-oauth-token', expires_in: 3600 });
+    }
+    assert.equal(request.url, 'https://fcm.googleapis.com/v1/projects/hatchai-8d34c/messages:send');
+    sentMessages.push((await request.json()).message);
+    return Response.json({ name: 'projects/hatchai-8d34c/messages/isolated-test' });
+  },
   ratelimits: Object.fromEntries(JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'))
     .ratelimits.map(b => [b.name, { namespace_id: b.namespace_id, simple: b.simple }]))
 };
@@ -91,5 +110,16 @@ try {
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM push_tokens').first()).n, 2);
   const foreign = await db.prepare('PRAGMA foreign_key_check').all(); assert.equal(foreign.results.length, 0);
   assert.equal((await post('/chick-detected', {})).status, 503);
-  console.log(`workerd/D1 integration passed: ${calls} requests; real rate bindings, concurrent redemption/registration/refresh, duplicate rollback, lost response, two owners, FK integrity, delivery disabled`);
+  const testAuth = await post('/registration/challenge', await winner.phone.sign('/registration/challenge', {
+    registrationId: registration.registrationId, requestId: random(), issuedAt: Math.floor(Date.now() / 1000)
+  }), true);assert.equal(testAuth.status, 200);
+  const testBody = await winner.phone.sign('/registration/test-notification', { registrationId: registration.registrationId,
+    nonce: testAuth.body.nonce, version: testAuth.body.version });
+  const tests = await Promise.all([post('/registration/test-notification', testBody, true), post('/registration/test-notification', testBody, true)]);
+  assert.deepEqual(tests.map(r => r.status).sort(), [200, 409], JSON.stringify({ tests, googleCalls, sends: sentMessages.length }));
+  assert.equal((await post('/registration/test-notification', testBody, true)).status, 409);
+  assert.equal(googleCalls, 2);assert.equal(sentMessages.length, 1);assert.equal(sentMessages[0].token, token);
+  assert.deepEqual(sentMessages[0].notification, { title: 'HATCHAI Test Notification', body: 'Your HATCHAI notification system is working.' });
+  assert.deepEqual(tests.find(r => r.status === 200).body, { accepted: true, displayConfirmed: false });
+  console.log(`workerd/D1 integration passed: ${calls} requests; real pairing and ownership, single-use manual send, one target, RSA OAuth with isolated provider, FK integrity, chick delivery disabled`);
 } finally { await mf.dispose(); }

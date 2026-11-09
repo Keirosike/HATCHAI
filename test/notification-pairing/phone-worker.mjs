@@ -44,6 +44,27 @@ await two.redeem(await code());const second = await two.register('test-token-pho
 check(env.DB.db.prepare('SELECT COUNT(*) n FROM push_tokens WHERE enabled=1').get().n === 2, 'both phones preserved');
 const reload = new PairingClient({ store: oneStore, fetcher: browserFetch });await reload.reconcile();await reload.register('test-token-phone-one-refresh-abcdefghijklmnopqrstuvwxyz');
 check(env.DB.db.prepare('SELECT COUNT(*) n FROM push_tokens').get().n === 2, 'refresh does not create another registration');
+// Actual browser signing client -> actual Worker/D1 -> intercepted Google provider.
+const rsa = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
+  publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+env.MANUAL_TEST_NOTIFICATIONS_ENABLED = 'true';
+env.FCM_SERVICE_ACCOUNT_JSON = JSON.stringify({ type: 'service_account', project_id: 'hatchai-8d34c',
+  client_email: 'phone-test@hatchai-8d34c.iam.gserviceaccount.com',
+  private_key: `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', rsa.privateKey)).toString('base64')}\n-----END PRIVATE KEY-----\n` });
+const originalFetch = globalThis.fetch, sends = [];
+try {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(options.redirect, 'manual');
+    if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'local-phone-oauth', expires_in: 3600 });
+    assert.equal(url, 'https://fcm.googleapis.com/v1/projects/hatchai-8d34c/messages:send');
+    sends.push(JSON.parse(options.body).message);return Response.json({ name: 'projects/hatchai-8d34c/messages/phone-test' });
+  };
+  check((await reload.sendTest()).accepted === true, 'browser-signed manual test accepted by real Worker');
+  check(sends.length === 1 && sends[0].token === 'test-token-phone-one-refresh-abcdefghijklmnopqrstuvwxyz', 'first phone test has only its refreshed token');
+  check(sends[0].notification.title === 'HATCHAI Test Notification' && sends[0].notification.body === 'Your HATCHAI notification system is working.', 'manual test exact fixed content');
+  check((await two.sendTest()).displayConfirmed === false, 'second phone sends independently without claiming display');
+  check(sends.length === 2 && sends[1].token === 'test-token-phone-two-abcdefghijklmnopqrstuvwxyz', 'second phone cannot broadcast to first');
+} finally { globalThis.fetch = originalFetch; }
 const lostStore = new MemoryStore(), lost = new PairingClient({ store: lostStore, fetcher: browserFetch });await lost.redeem(await code());loseRegister = true;
 await assert.rejects(lost.register('test-token-lost-response-abcdefghijklmnopqrstuvwxyz'));await lost.reconcile();await lost.register('test-token-lost-response-abcdefghijklmnopqrstuvwxyz');
 check(env.DB.db.prepare('SELECT COUNT(*) n FROM push_tokens').get().n === 3, 'lost response reconciled without duplicate');
@@ -58,5 +79,5 @@ check(noRedirects, 'signed request credentials cannot follow redirects');
 const malformed = new PairingClient({ store: oneStore, fetcher: async () => new Response('PRIVATE_GRANT malformed response', { status: 200 }) });
 await assert.rejects(malformed.post('/registration/challenge', { registrationId: first.registrationId }, await malformed.record()), error => error.message === 'Invalid notification server response.');++checks;
 const disabled = await worker.fetch(new Request('http://localhost/chick-detected', { method: 'POST' }), env);check(disabled.status === 503, 'detection remains disabled');
-console.log(`Phone/Worker integration: ${checks} checks passed; 3 independent phones, refresh, lost response, token ownership, unregistration, hard expiry and lost key.`);
+console.log(`Phone/Worker integration: ${checks} checks passed; independent signed manual sends, 3 phones, refresh, lost response, ownership, unregistration and hard expiry.`);
 env.DB.db.close();

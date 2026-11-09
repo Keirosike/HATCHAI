@@ -1,4 +1,21 @@
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
+let activeInstance = null;
+function init({ adapter, onOnlineStatus = () => {} }) {
+  if (activeInstance) throw new Error('A dashboard is already initialized.');
+  if (!adapter || !['local', 'online'].includes(adapter.mode)) throw new Error('Dashboard adapter required.');
+  const HatchBatchStore = adapter.batchStore;
+  let disposed = false;
+  const listeners = [];
+  function listen(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    listeners.push(() => target.removeEventListener(type, handler, options));
+  }
+  const instance = { destroy() {
+    if (disposed) return;
+    disposed = true; clearTimeout(dashboardPollTimer); dashboardPredictionRequestId++;
+    listeners.forEach(remove => remove()); activeInstance = null;
+  }, refresh: () => loadESP32Data() };
+  activeInstance = instance;
   const DEGREE_C = "\u00B0C";
 
   const chartDataSets = Object.fromEntries(
@@ -25,7 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setText(id, value) {
     const element = document.getElementById(id);
-    if (element && element.textContent !== value) element.textContent = value;
+    if (!disposed && element && element.textContent !== value) element.textContent = value;
   }
 
   function dashboardRequest(action) {
@@ -455,7 +472,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   if (environmentCanvas) {
-    environmentCanvas.addEventListener("mousemove", function (event) {
+    listen(environmentCanvas, "mousemove", function (event) {
       const pos = getCanvasPointerPosition(event);
       const point = getNearestLinePoint(pos.x, pos.y);
 
@@ -476,7 +493,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
 
-    environmentCanvas.addEventListener("click", function (event) {
+    listen(environmentCanvas, "click", function (event) {
       const pos = getCanvasPointerPosition(event);
       const point = getNearestLinePoint(pos.x, pos.y);
 
@@ -491,7 +508,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
 
-    environmentCanvas.addEventListener("mouseleave", function () {
+    listen(environmentCanvas, "mouseleave", function () {
       environmentCanvas.style.cursor = "default";
 
       if (!pinnedTooltip) {
@@ -500,7 +517,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
 
-    environmentCanvas.addEventListener(
+    listen(environmentCanvas,
       "touchstart",
       function (event) {
         const pos = getTouchPointerPosition(event);
@@ -550,7 +567,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setDashboardActiveBatch(id) {
-    if (!window.HatchBatchStore || !id) return;
+    if (!HatchBatchStore || !id) return;
 
     const currentBatches = HatchBatchStore.loadBatches();
     const selectedTarget = currentBatches.find(batch => batch.id === id);
@@ -602,7 +619,7 @@ document.addEventListener("DOMContentLoaded", function () {
       `PID ${data.control.heaterDutyPercent.toFixed(1)}% · ${data.relayOn ? 'ON' : 'OFF'}` : data.relayBadge || "Bulb Idle");
     setText("motorValue", data.motorStatus || "Idle");
     setText("motorSubtext", data.motorNote || "Waiting for ESP32 data");
-    if (!window.HatchBatchStore) {
+    if (!HatchBatchStore) {
       setText("hatchDayValue", data.predictedDay || "Waiting for data");
       setText("hatchDateValue", data.hatchDate || "Waiting for ESP32 sensor data");
     }
@@ -637,7 +654,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   async function updateDashboardBatchData(data = {}) {
-    if (!window.HatchBatchStore) return;
+    if (!HatchBatchStore) return;
 
     const requestId = ++dashboardPredictionRequestId;
     const batches = HatchBatchStore.loadBatches();
@@ -701,7 +718,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     try {
       const prediction = await dashboardRequest(() => requestId === dashboardPredictionRequestId ?
-        window.HatchEspApi.predictBatch({ batchId: selectedBatch.id, incubationDay: dayInfo.day }) : null);
+        adapter.predictBatch({ batchId: selectedBatch.id, incubationDay: dayInfo.day }) : null);
 
       if (requestId !== dashboardPredictionRequestId || !prediction) {
         return;
@@ -755,10 +772,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
   async function loadESP32Data() {
-    if (dashboardLoading || document.hidden) return;
+    if (disposed || dashboardLoading || document.hidden) return;
     dashboardLoading = true;
     try {
-      const data = await dashboardRequest(() => window.HatchEspApi.getData());
+      const data = await dashboardRequest(() => adapter.getData());
+      if (disposed) return;
+      if (adapter.mode === 'online') {
+        renderOnline(data);
+        return;
+      }
       const previousChart = JSON.stringify([tempData, humidityData, chartLabels]);
 
       await updateTextData(data);
@@ -800,6 +822,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
       renderCharts();
     } catch (error) {
+      if (disposed) return;
+      if (adapter.mode === 'online') {
+        clearOnline();
+        setText('safetyBanner', error.message);
+        setText('onlineIncubatorInfo', 'Account access could not be verified. Refresh or sign in again.');
+        onOnlineStatus(false);
+        return;
+      }
       setText("temperatureReadingNote", "Last reading — connection lost");
       setText("humidityReadingNote", "Last reading — connection lost");
       setText("wifiStatus", "Unavailable");
@@ -819,26 +849,54 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function scheduleDashboardPoll() {
     clearTimeout(dashboardPollTimer);
-    if (!document.hidden) dashboardPollTimer = setTimeout(loadESP32Data, 5000);
+    if (!disposed && !document.hidden) dashboardPollTimer = setTimeout(loadESP32Data, adapter.pollMs);
   }
 
   document.querySelectorAll(".filter-btn").forEach(button => {
-    button.addEventListener("click", () => {
+    listen(button, "click", () => {
       setChartRange(button.dataset.range);
     });
   });
 
   if (dashboardBatchSelect) {
-    dashboardBatchSelect.addEventListener("change", () => {
+    listen(dashboardBatchSelect, "change", () => {
       setDashboardActiveBatch(dashboardBatchSelect.value);
     });
   }
 
-  loadESP32Data();
-  document.addEventListener("visibilitychange", () => {
+  if (adapter.mode === 'online') clearOnline();
+  instance.ready = loadESP32Data();
+  listen(document, "visibilitychange", () => {
     if (document.hidden) clearTimeout(dashboardPollTimer);
     else scheduleDashboardPoll();
   });
 
-  window.addEventListener("resize", renderCharts);
-});
+  listen(window, "resize", renderCharts);
+  return instance;
+
+  function clearOnline() {
+    const unknown = ['tempValue', 'humidityValue', 'relayValue', 'motorValue', 'hatchDayValue', 'hatchDateValue',
+      'activeBatchValue', 'dashboardLaidDate', 'dashboardStartDate', 'dashboardExpectedHatch', 'dashboardBatchProgress',
+      'summaryTemp', 'summaryHumidity', 'summaryRelay', 'summaryTurning', 'lastTurnValue', 'turnsTodayValue',
+      'totalTurnsValue', 'actualTurnIntervalValue', 'lastAnomalyValue', 'sensorStatusValue', 'rtcValue', 'sdValue', 'wifiValue'];
+    unknown.forEach(id => setText(id, 'Unavailable'));
+    ['temperatureReadingNote', 'humidityReadingNote', 'relayBadge', 'motorSubtext', 'chartStatus'].forEach(id => setText(id, 'Monitoring not connected yet'));
+    setText('wifiStatus', 'Online account');
+    setText('lastUpdated', 'Last synchronization: unavailable');
+    setText('safetyBanner', 'Monitoring not connected yet. Safety and incubation controls remain local.');
+    setText('onlineVerification', 'Account access is being checked.');
+    if (dashboardBatchSelect) dashboardBatchSelect.disabled = true;
+    renderCharts();
+  }
+  function renderOnline(data) {
+    clearOnline();
+    setText('onlineIncubatorInfo', data.incubators.length ? data.incubators.map(row => row.device_name + ' (' + row.device_id + ')').join(' · ') :
+      'No incubator is available to this account. Check ownership and access policies.');
+    setText('onlineVerification', data.incubators.length ? 'Authenticated incubator access verified.' : 'No authorized incubator returned.');
+    onOnlineStatus(data.incubators.length > 0);
+    // This API does not provide a telemetry timestamp. Do not substitute fetch time.
+    setText('lastUpdated', data.lastSyncedAt ? 'Last synchronization: ' + data.lastSyncedAt : 'Last synchronization: unavailable');
+  }
+}
+window.HatchDashboard = Object.freeze({ init });
+})();

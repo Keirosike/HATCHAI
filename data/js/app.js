@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 window.HatchApp = {
+  initNavbar,
   get(id) {
     return document.getElementById(id);
   },
@@ -46,8 +47,13 @@ function initNavbar() {
   const navLinks = document.getElementById("navLinks");
 
   if (!hamburger || !navLinks) return;
+  const listeners = [];
+  function on(target, type, handler) {
+    target.addEventListener(type, handler);
+    listeners.push(() => target.removeEventListener(type, handler));
+  }
 
-  hamburger.addEventListener("click", () => {
+  on(hamburger, "click", () => {
     hamburger.classList.toggle("active");
     navLinks.classList.toggle("active");
 
@@ -56,18 +62,19 @@ function initNavbar() {
   });
 
   document.querySelectorAll("#navLinks a").forEach(link => {
-    link.addEventListener("click", () => {
+    on(link, "click", () => {
       hamburger.classList.remove("active");
       navLinks.classList.remove("active");
       hamburger.setAttribute("aria-expanded", "false");
     });
   });
 
-  window.addEventListener("resize", () => {
+  on(window, "resize", () => {
     if (window.innerWidth > 700) {
       hamburger.classList.remove("active");
       navLinks.classList.remove("active");
       hamburger.setAttribute("aria-expanded", "false");
     }
   });
+  return () => listeners.forEach(remove => remove());
 }

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer"><title>HATCHAI Online Sign In</title>
+  <style>
+    :root{font:16px/1.6 system-ui;color:#172b3a;background:#f3f6fa}*{box-sizing:border-box}
+    #onlineLogin{max-width:520px;margin:40px auto;padding:24px;background:white;border:1px solid #cbd5e1;border-radius:12px}
+    #onlineLogin h1{font-size:1.6rem;margin:0 0 12px}#onlineLogin label{display:block;margin-top:16px;font-weight:600}
+    #onlineLogin input,#onlineLogin button{font:inherit;min-height:48px;border-radius:6px}#onlineLogin input{width:100%;padding:10px;border:1px solid #64748b}
+    #onlineLogin button{padding:10px 16px;cursor:pointer;border:1px solid #1466cc;background:#1466cc;color:white;margin-top:16px}
+    #onlineLogin button.secondary{background:white;color:#1466cc}#onlineLogin button:disabled{opacity:.6;cursor:default}
+    :focus-visible{outline:3px solid #1466cc;outline-offset:3px}#status{padding:16px;background:#edf4fa;overflow-wrap:anywhere}
+    [hidden]{display:none!important}#status{white-space:pre-line}#onlineDashboard{overflow-wrap:anywhere}
+    #onlineDashboard .btn{min-height:44px;margin:4px 4px 0 0}
+    #onlineDashboard .dashboard-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr))}
+    #onlineDashboard .dashboard-grid .wide-card{grid-column:1/-1}
+    #onlineDashboard .dashboard-grid>.card{min-width:0}
+    #onlineDashboard .value{font-size:clamp(1.25rem,2.8vw,2rem);white-space:nowrap;overflow-wrap:normal;word-break:normal}
+    @media(max-width:640px){#onlineDashboard .dashboard-grid{grid-template-columns:1fr}}
+    @media(max-width:560px){#onlineLogin{margin:16px}}
+  </style>
+</head>
+<body><main id="onlineLogin">
+  <h1>HATCHAI Online</h1>
+  <p>Sign in with your existing Supabase account. Your local incubator keeps operating independently.</p>
+  <form id="login">
+    <label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="username" maxlength="254" required>
+    <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+    <button id="visibility" class="secondary" type="button" aria-controls="password" aria-pressed="false">Show password</button>
+    <button id="submit" type="submit">Sign in</button>
+  </form>
+  <p id="status" role="status" aria-live="polite">Online sign-in only. Monitoring and notifications are not connected yet.</p>
+  <button id="logout" class="secondary" type="button" hidden>Sign out</button>
+  <button id="refreshIncubator" class="secondary" type="button" hidden>Refresh incubator</button>
+  <p>Your session stays in this page’s memory. Reloading or closing the page requires another sign-in.</p>
+  <noscript>Enable JavaScript to sign in.</noscript>
+</main><section id="onlineDashboard" aria-label="Online incubator dashboard" hidden></section><script type="module" src="online-login.js"></script></body></html>

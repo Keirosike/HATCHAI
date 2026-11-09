@@ -1,0 +1,7 @@
+# Existing ESP-IDF Python environment versions used for local verification.
+# Do not automatically upgrade or modify the shared ESP-IDF environment.
+cryptography==44.0.3
+esptool==4.12.0
+pyserial==3.5
+# Synthetic NVS fixture generation in tests only:
+esp-idf-nvs-partition-gen==0.1.9
