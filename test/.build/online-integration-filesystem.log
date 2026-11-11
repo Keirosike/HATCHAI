@@ -1,0 +1,75 @@
+Processing esp32dev (platform: espressif32; board: esp32dev; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32dev.html
+PLATFORM: Espressif 32 (7.0.1) > Espressif ESP32 Dev Module
+HARDWARE: ESP32 240MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-arduinoespressif32 @ 3.20017.241212+sha.dcc1105b 
+ - tool-esptoolpy @ 2.41100.0 (4.11.0) 
+ - tool-mkspiffs @ 2.230.0 (2.30) 
+ - toolchain-xtensa-esp32 @ 8.4.0+2021r2-patch5
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 34 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- ArduinoJson @ 6.21.5
+|-- Preferences @ 2.0.0
+|-- WiFi @ 2.0.0
+|-- FS @ 2.0.0
+|-- SPIFFS @ 2.0.0
+|-- Wire @ 2.0.0
+|-- ESPmDNS @ 2.0.0
+|-- SD @ 2.0.0
+|-- SPI @ 2.0.0
+|-- WebServer @ 2.0.0
+Building in release mode
+Building FS image from 'data' directory to .pio\build\esp32dev\spiffs.bin
+/a/fonts/inter-regular.woff2
+/a/fonts/inter-semibold.woff2
+/a/icons/cpu.svg
+/a/icons/lock.svg
+/a/icons/shield.svg
+/a/icons/user.svg
+/a/images/fortitle.webp
+/a/images/hatchai-logo.webp
+/batch.html
+/camera.html
+/control.html
+/css/base.css
+/css/batch.css
+/css/camera.css
+/css/components.css
+/css/control.css
+/css/dashboard.css
+/css/layout.css
+/css/login.css
+/css/modal.css
+/css/settings.css
+/css/toastNotification.css
+/dashboard.html
+/index.html
+/js/app.js
+/js/authSession.js
+/js/batch.js
+/js/batchStore.js
+/js/camera.js
+/js/cameraView.js
+/js/componentStatus.js
+/js/control.js
+/js/dashboard-local.js
+/js/dashboard.js
+/js/dashboardAdapters.js
+/js/espApi.js
+/js/login.js
+/js/modal.js
+/js/offlineNotifications.js
+/js/settings.js
+/js/storage.js
+/js/toastNotification.js
+/js/wifi.js
+/log.html
+/settings.html
+========================= [SUCCESS] Took 6.43 seconds =========================

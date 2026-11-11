@@ -1,5 +1,36 @@
 # PID adapted to the current two-roller system
 
+Latest DHT22 transient-fault policy: see DHT22_RELAY_BATCH_FIX.md. An already-ON
+heater can hold through read failures only while the last qualified valid sample
+is younger than 20 seconds. No new ON is authorized during a read fault; exact
+20-second expiry, known hot values and other safety gates force OFF immediately.
+Older immediate-failed-frame-OFF descriptions below are superseded by this policy.
+
+## Current warm-up policy (2026-11-10)
+
+Automatic mode now requests continuous heating until qualified measured
+temperature first reaches the selected target. PID then maintains temperature;
+ordinary dips below target do not restart full-power warm-up. An explicit target
+change re-evaluates warm-up against the retained measurement. Restarting the
+controller starts a new warm-up; same-target mode changes and fault recovery
+preserve target attainment. PID gains and relay timing are unchanged.
+
+Warm-up still requires qualified, fresh DHT22 readings, healthy controller
+storage/watchdog, and all temperature protections. Invalid/stale readings and
+safety holds force OFF. Automatic retains the 10-second minimum OFF and 30-second start spacing.
+Manual buttons bypass those PID intervals but retain all sensor/thermal gates. Reaching the
+target ends warm-up and switches the automatic output OFF immediately, then
+normal PID relay windows resume as needed. Manual commands retain their existing
+safety checks and are not changed by this automatic handoff.
+
+Current wiring is DHT22 GPIO4, heater GPIO14 active-low, passive buzzer GPIO27,
+and a directly powered fan. Older hardware descriptions below are historical.
+The status reports full-power warm-up when it commands heating during that phase.
+Local compile-time checks cover continuous warm-up, exact target handoff,
+maintenance dips, failure/recovery, same-target mode changes, retargeting, manual
+commands and timer rollover. Physical overshoot and relay operation remain
+unverified; a successful build does not prove either. No upload was performed.
+
 This implementation replaces only the current heating policy. It does not apply
 the old stashed hardware map or create another Control page. Existing heater
 GPIO27, fan GPIO14, Lower GPIO25 and Upper GPIO26 remain active-low. SHT40 shares

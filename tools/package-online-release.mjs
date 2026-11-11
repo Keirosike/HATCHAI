@@ -9,8 +9,9 @@ const release = path.join(root, 'dist/myhatchai');
 const site = path.join(release, 'site');
 execFileSync(process.execPath, ['tools/package-online-dashboard.mjs'], { cwd: root, stdio: 'pipe' });
 const shared = JSON.parse(await readFile(path.join(root, 'public/shared/manifest.json'), 'utf8'));
-const frontend = ['online-login.html', 'online-login.js', 'online-dashboard.js', 'supabase-auth.js',
-  'incubator-read.js', 'online-api-settings.js', 'cloud-notification-settings.js'];
+const frontend = ['manifest.webmanifest', 'online-login.html', 'online-login.js', 'online-dashboard.js', 'supabase-auth.js',
+  'native-push/client.js', 'native-push/modal.js', 'native-push/service-worker.js',
+  'camera-api.js', 'telemetry-api.js', 'incubator-read.js', 'online-api-settings.js', 'cloud-notification-settings.js'];
 // Dormant FCM assets only: this dashboard never registers the service worker.
 // Do not bring the old site's notification page or enrollment scripts here.
 const messaging = ['firebase-config.js', 'push-settings.js', 'firebase-messaging-sw.js'];

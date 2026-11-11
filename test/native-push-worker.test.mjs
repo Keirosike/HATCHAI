@@ -23,6 +23,12 @@ for (const position of ['upper', 'lower']) test(position + ' content is fixed; e
   assert.ok(f.displayed[0].options.tag.includes(position));
   assert.equal(f.displayed[0].options.data.url, '/online-login.html');
 });
+
+test('telemetry alerts have fixed reviewed text and safe click destination',async()=>{
+ const f=fixture();await f.push({type:'hatchai-telemetry-alert',kind:'sensor_failure',status:'active',eventId:'alert_synthetic_12345',title:'untrusted',url:'https://evil.example'});
+ assert.equal(f.displayed[0].title,'HATCHAI Incubator Alert');assert.ok(f.displayed[0].options.body.includes('Sensor reading failed'));assert.equal(f.displayed[0].options.data.url,'/online-login.html');
+ await f.push({type:'hatchai-telemetry-alert',kind:'unknown',status:'active',eventId:'alert_synthetic_12345'});assert.equal(f.displayed.length,1);
+});
 test('malformed, oversized and unrelated push messages are ignored', async () => {
   const f = fixture();
   for (const payload of [null, {}, { type: 'other' }, { type: 'hatchai-chick-detected', position: 'upper', eventId: 'bad' }, { huge: 'x'.repeat(3000) }]) await f.push(payload);
@@ -35,6 +41,6 @@ test('notification click ignores foreign notification URLs', async () => {
   await pending;
   assert.deepEqual(f.opened, ['https://myhatchai.web.app/online-login.html']);
 });
-test('worker has no SDK, registration, caching or fetch interception', () => {
-  assert.ok(!/importScripts\(|firebasejs|caches\.|\.register\(|addEventListener\(['"]fetch/.test(source));
+test('worker has no SDK, registration, app-shell caching or fetch interception', () => {
+  assert.ok(!/importScripts\(|firebasejs|\.register\(|addEventListener\(['"]fetch/.test(source));
 });

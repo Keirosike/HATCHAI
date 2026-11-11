@@ -5,9 +5,10 @@
 #include <cstdio>
 #include <cstring>
 #include <vector>
-#if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM)
 #include <mbedtls/sha256.h>
 #include <mbedtls/md.h>
+#include <mbedtls/version.h>
 #elif defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -176,9 +177,13 @@ bool canonicalValue(JsonVariantConst value,std::string& out,size_t depth,size_t&
   return append(out,number);
 }
 bool digest(const uint8_t* data,size_t length,const uint8_t* key,size_t keyLength,uint8_t output[32]) {
-#if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP_PLATFORM)
   if(key) return mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),key,keyLength,data,length,output)==0;
+#if MBEDTLS_VERSION_MAJOR >= 3
+  return mbedtls_sha256(data,length,output,0)==0;
+#else
   return mbedtls_sha256_ret(data,length,output,0)==0;
+#endif
 #else
   BCRYPT_ALG_HANDLE algorithm=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;bool ok=false;
   if(BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,key?BCRYPT_ALG_HANDLE_HMAC_FLAG:0)>=0) {
@@ -193,7 +198,7 @@ bool digest(const uint8_t* data,size_t length,const uint8_t* key,size_t keyLengt
 }
 bool supported(const std::string& method,const std::string& path) {
   return method=="POST"&&(path=="/device/pairing/challenge"||path=="/device/pairing/start"||
-    path=="/device/pairing/status"||path=="/device/pairing/cancel");
+    path=="/device/telemetry"||path=="/device/pairing/status"||path=="/device/pairing/cancel");
 }
 }
 bool validJson(const std::string& input) {
@@ -212,9 +217,11 @@ std::string base64url(const uint8_t* bytes,size_t length) {
   for(size_t i=0;i<length;i++){bits=(bits<<8)|bytes[i];available+=8;while(available>=6){available-=6;out+=alphabet[(bits>>available)&63];}}
   if(available)out+=alphabet[(bits<<(6-available))&63];return out;
 }
-bool sign(const std::string& method,const std::string& path,const std::string& input,
-          const Credentials& credentials,SignedRequest& output) {
-  output.clear();if(!credentials.valid()||!supported(method,path)||!validJson(input))return false;
+static bool scopedSign(const std::string& method,const std::string& path,const std::string& input,
+          const Credentials& credentials,SignedRequest& output,bool camera) {
+  const bool authorized=camera ? (method=="POST" && (path=="/device/camera-events"||path=="/device/camera-captures") &&
+    (credentials.deviceId=="hatchai-inc01-cam01"||credentials.deviceId=="hatchai-inc01-cam02") && validKeyId(credentials.keyId) && credentials.keyLength==32) : credentials.valid()&&supported(method,path);
+  output.clear();if(!authorized||!validJson(input))return false;
   DynamicJsonDocument doc(8192);if(deserializeJson(doc,input,DeserializationOption::NestingLimit(MaxDepth+1))||!doc.is<JsonObject>())return false;
   if(!doc["deviceId"].is<const char*>()||!doc["keyId"].is<const char*>()||
     credentials.deviceId!=doc["deviceId"].as<const char*>()||credentials.keyId!=doc["keyId"].as<const char*>())return false;
@@ -229,6 +236,27 @@ bool sign(const std::string& method,const std::string& path,const std::string& i
   candidate.method=method;candidate.path=path;
   candidate.body=candidate.canonical.substr(0,candidate.canonical.size()-1)+",\"signature\":\""+candidate.signature+"\"}";
   if(candidate.body.size()>MaxJson)return false;output=candidate;return true;
+}
+bool sign(const std::string& method,const std::string& path,const std::string& input,const Credentials& credentials,SignedRequest& output){return scopedSign(method,path,input,credentials,output,false);}
+bool signCamera(const std::string& path,const std::string& input,const Credentials& credentials,SignedRequest& output){return scopedSign("POST",path,input,credentials,output,true);}
+bool signTelemetry(const Credentials& credentials,const TelemetryFrame& sample,const std::string& eventId,uint32_t issuedAt,const std::string& nonce,SignedRequest& output){
+  output.clear();if(!credentials.valid()||issuedAt<1704067200U||issuedAt>=4102444800U||sample.capturedAt<1704067200U||sample.capturedAt>=4102444800U||eventId.size()!=36||nonce.size()<24||nonce.size()>64||!validKeyId(nonce))return false;
+  for(size_t i=0;i<36;i++){const char c=eventId[i];if(i==8||i==13||i==18||i==23){if(c!='-')return false;}else if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;}
+  if(eventId[14]!='4'||(eventId[19]!='8'&&eventId[19]!='9'&&eventId[19]!='a'&&eventId[19]!='b'))return false;
+  if(sample.upperCamera < -1||sample.upperCamera>1||sample.lowerCamera < -1||sample.lowerCamera>1||
+     (sample.valid&&(sample.temperatureCenti < -4000||sample.temperatureCenti>8000||sample.humidityCenti>10000||sample.sensorAgeMs>=20000)))return false;
+  char temp[16],humidity[16],age[16],json[1400];
+  snprintf(temp,sizeof(temp),"%d",int(sample.temperatureCenti));snprintf(humidity,sizeof(humidity),"%u",unsigned(sample.humidityCenti));snprintf(age,sizeof(age),"%u",unsigned(sample.sensorAgeMs));
+  const auto boolean=[](bool b){return b?"true":"false";};
+  const auto camera=[](int8_t value){return value<0?"null":value==1?"true":"false";};
+  const int n=snprintf(json,sizeof(json),"{\"deviceId\":\"%s\",\"issuedAt\":%lu,\"keyId\":\"%s\",\"nonce\":\"%s\",\"sample\":{\"autoMode\":%s,\"capturedAt\":%lu,\"eventId\":\"%s\",\"fanOn\":null,\"heaterOn\":%s,\"humidityCenti\":%s,\"lowerCameraOnline\":%s,\"lowerChick\":%s,\"lowerOn\":%s,\"sensorAgeMs\":%s,\"sensorValid\":%s,\"temperatureCenti\":%s,\"upperCameraOnline\":%s,\"upperChick\":%s,\"upperOn\":%s}}",
+    credentials.deviceId.c_str(),(unsigned long)issuedAt,credentials.keyId.c_str(),nonce.c_str(),boolean(sample.automatic),(unsigned long)sample.capturedAt,eventId.c_str(),boolean(sample.heater),sample.valid?humidity:"null",camera(sample.lowerCamera),sample.lowerCamera==1?boolean(sample.lowerChick):"null",boolean(sample.lower),sample.valid?age:"null",boolean(sample.valid),sample.valid?temp:"null",camera(sample.upperCamera),sample.upperCamera==1?boolean(sample.upperChick):"null",boolean(sample.upper));
+  if(n<=0||size_t(n)>=sizeof(json))return false;
+  SignedRequest candidate;candidate.canonical.assign(json,n);uint8_t hash[32]={};
+  if(!digest(reinterpret_cast<const uint8_t*>(candidate.canonical.data()),candidate.canonical.size(),nullptr,0,hash))return false;
+  candidate.payloadHash=base64url(hash,32);const std::string message="HATCHAI-NOTIFY-v1\nPOST\n/device/telemetry\n"+candidate.payloadHash;
+  const bool ok=digest(reinterpret_cast<const uint8_t*>(message.data()),message.size(),credentials.key,32,hash);if(ok)candidate.signature=base64url(hash,32);erase(hash,sizeof(hash));if(!ok)return false;
+  candidate.method="POST";candidate.path="/device/telemetry";candidate.body=candidate.canonical.substr(0,candidate.canonical.size()-1)+",\"signature\":\""+candidate.signature+"\"}";output=candidate;return true;
 }
 bool verify(const std::string& method,const std::string& path,const std::string& input,
             const Credentials& credentials,const std::string& signature) {

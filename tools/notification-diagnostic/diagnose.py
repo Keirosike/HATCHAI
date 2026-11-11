@@ -16,8 +16,8 @@ def run(args):
     _,report=p.inspect_image(image,args.sha256)
     print('Verified diagnostic SHA-256: '+report['sha256'])
     p.need(args.execute and args.loads_isolated,'Explicit diagnostic execution and isolated loads required.')
-    p.need(input('Type DIAGNOSE b03fd35b8a88: ')=='DIAGNOSE b03fd35b8a88','Confirmation refused.')
-    connection=SimpleNamespace(port=args.port,baud=57600,expected_mac='b03fd35b8a88')
+    p.need(input('Type DIAGNOSE b03fd35b6134: ')=='DIAGNOSE b03fd35b6134','Confirmation refused.')
+    connection=SimpleNamespace(port=args.port,baud=57600,expected_mac='b03fd35b6134')
     before=p.snapshot(connection,twice=True)
     p.nvs_entries(before[p.NVS_START:p.NVS_END],include_owned=True)
     # Baseline contains secrets: retain encrypted, never print or save plaintext.
@@ -25,7 +25,7 @@ def run(args):
     p.save_private(target,p.backup_payload(before,connection.expected_mac))
     image,_=p.inspect_image(image,args.sha256)
     esp=None;passed=False
-    codes={'identity_failed','security_failed','flash_init_failed','flash_query_failed','flash_mismatch','table_failed','table_ok','nvs_failed','nvs_raw_ok','pass'}
+    codes={'identity_failed','security_failed','flash_init_failed','flash_query_failed','flash_mismatch','table_failed','nvs_failed','pass'}
     try:
         esp=p.connect(connection)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -45,6 +45,9 @@ def run(args):
                     if line[6:]=='pass':passed=True;break
                     if line.endswith('_failed') or line.endswith('_mismatch'):break
                 elif re.fullmatch(r'HDIAG sizes physical=[0-9]{1,10} usable=[0-9]{1,10} rom=[0-9]{1,10}',line):print(line)
+                elif re.fullmatch(r'HDIAG table code=[0-4]',line):print(line)
+                elif re.fullmatch(r'HDIAG page index=[0-4] code=0 erased=[01]',line):print(line)
+                elif re.fullmatch(r'HDIAG nvs code=([0-9]|1[0-4]) page=[0-4] erased=[0-5]',line):print(line)
             elif len(buffer)<192:buffer.extend(value)
             else:raise p.Failure('Oversized diagnostic line.')
     finally:p.close_port(esp)

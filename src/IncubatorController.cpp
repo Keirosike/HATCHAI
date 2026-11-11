@@ -76,6 +76,7 @@ void IncubatorController::begin() {
   _logger.begin();
   _display.begin();
   _sensor.begin();
+  _sensor.startAcquisition(); // bounded background GPIO read; no wait in control loop
   _watchdog.begin();
   if (_profile.healthy && ((_watchdog.recoveryRequired && _watchdog.reason!=ESP_RST_BROWNOUT) || (_profile.value.flags & 4))) {
     _watchdog.recoveryRequired = true;
@@ -518,7 +519,7 @@ bool IncubatorController::hasElapsed(
 void IncubatorController::readSensorIfDue(uint32_t nowMs) {
   if (!_sensorSampling.due(nowMs)) return;
 
-  SensorReading reading = _sensor.read();
+  SensorReading reading = _sensor.acquisition();
   if (isfinite(reading.temperatureC)) reading.temperatureC += _settings.temperatureOffsetC;
   if (!(reading.temperatureC >= -40 && reading.temperatureC <= 80)) {
     if (reading.valid) reading.error = "Calibrated temperature is outside permitted range";
@@ -533,9 +534,9 @@ void IncubatorController::readSensorIfDue(uint32_t nowMs) {
   const bool wasHigh = _safety.high;
   _safety.sample(reading.timestampMs, reading.valid, reading.temperatureC);
   _heaterControl.sample(reading.timestampMs,reading.temperatureC,reading.valid,_settings.targetTemperatureC);
-  // Failed frames do not authorize a new pulse, even when telemetry retains a
-  // recent valid value. Existing thermal/watchdog gates remain independent.
-  if(!reading.valid) forceHeaterOff(millis());
+  // A missed frame can retain an already-ON heater only while the prior
+  // qualified sample is younger than 20 s. PID never starts a new pulse from
+  // a failed frame; safety and watchdog checks remain independent.
   if (!_safety.heatAllowed(millis())) forceHeaterOff(millis());
   if (!wasCritical && _safety.critical) {
     stopTurnCycle(); _profile.value.flags |= 1; persistProfile();
@@ -643,12 +644,17 @@ void IncubatorController::refreshDisplayIfDue(uint32_t nowMs) {
   const auto label=[this,&p](uint8_t i) -> String {
     const auto& b=_recoveryState.batches[i];
     const auto matches=[&p,i](const HatchRecovery::Batch& saved) {
-      return saved.start==p.start[i] && strcmp(saved.id,p.batchId[i])==0 && saved.label[0];
+      return saved.start==p.start[i] && strcmp(saved.id,p.batchId[i])==0 && (saved.label[0] || saved.name[0]);
     };
     const int slot=HatchDisplay::labelSource(matches(b),
       _recoveryPair.valid[0] && matches(_recoveryPair.state[0].batches[i]),_recoveryPair.state[0].sequence,
       _recoveryPair.valid[1] && matches(_recoveryPair.state[1].batches[i]),_recoveryPair.state[1].sequence);
-    return slot==-2 ? String(b.label) : slot>=0 ? String(_recoveryPair.state[slot].batches[i].label) : String("Loading");
+    if(slot==-2) return String(b.label[0] ? b.label : b.name);
+    if(slot>=0) {
+      const auto& saved=_recoveryPair.state[slot].batches[i];
+      return String(saved.label[0] ? saved.label : saved.name);
+    }
+    return String(HatchDisplay::missingLabel(_recoveryLoaded,uint32_t(millis()-_recoveryLoadStartedMs),HatchConfig::RecoveryBootTimeoutMs));
   };
   const auto rollerLine=[this,&p,&label](uint8_t i,bool assigned) -> String {
     const String prefix=i ? "Upper: " : "Lower: ";
@@ -1144,10 +1150,15 @@ bool IncubatorController::updateBoundBatch(const String& id,const String& date,b
 }
 bool IncubatorController::updateBatchMetadata(const String& id,const String& label,const String& name,uint16_t eggs) {
   if(label.length()>30 || name.length()>64 || eggs>1000) return false;
-  for(uint8_t i=0;i<2;++i) if(id.length() && id==_recoveryState.batches[i].id) {
-    auto& b=_recoveryState.batches[i]; label.toCharArray(b.label,sizeof(b.label)); name.toCharArray(b.name,sizeof(b.name));
-    b.eggCount=eggs; requestStateSave();
+  for(uint8_t i=0;i<2;++i) if(id.length() && id==_profile.value.batchId[i]) {
+    // The durable profile can precede the SD recovery metadata. Match the
+    // authoritative assignment, not an empty recovery ID; never acknowledge a
+    // label update silently without applying it to an assigned batch.
+    if(!HatchDisplay::applyMetadata(_recoveryState.batches[i],_profile.value.batchId[i],
+        _profile.value.start[i],id.c_str(),label.c_str(),name.c_str(),eggs)) return false;
+    requestStateSave();
   }
+  // History-only batches are legitimately not assigned to either roller.
   return true;
 }
 bool IncubatorController::motorAllowed(uint8_t i, uint32_t nowMs) const {
@@ -1245,16 +1256,22 @@ String IncubatorController::heaterStatus() const {
   if (!_profile.healthy) return "Heater OFF: internal settings storage fault";
   if (!_watchdog.healthy) return "Heater OFF: watchdog fault";
   if (_watchdog.recoveryRequired) return "Heater OFF: qualifying sensor after restart";
+  if (_heaterControl.tripped()) return "Heater OFF: PID critical-temperature latch";
   if (!_safety.ready(millis())) return "Heater OFF: waiting for qualified DHT22";
   if (!_heaterControl.ready(millis())) return "Heater OFF: PID qualifying DHT22";
   if (_safety.inhibited || _safety.high) return "Heater OFF: cooling hold until at most 37.5 C";
-  if (_heater.isOn()) return "Heating ON";
+  if (_heaterControl.temporarySensorFault()) return _heater.isOn() ?
+    "Heating ON: brief DHT22 fault; last valid sample under 20 s" :
+    "Heater OFF: DHT22 fault; waiting for valid sample";
+  if (_heater.isOn()) return _settings.autoMode && _heaterControl.warming() ? "Heating ON: full-power warm-up until target" : "Heating ON";
   if (!_settings.autoMode && !_settings.heaterOn) return "Manual bulb OFF";
+  if (_heaterControl.targetLimited(_settings.targetTemperatureC))
+    return String("Heater OFF: target protection at ")+String(_settings.targetTemperatureC+0.2f,1)+" C";
   {
     const uint32_t remaining=_heaterControl.restartRemainingMs(millis(),_settings.autoMode);
     if (remaining) return String("Heater OFF: relay restart delay, ") + String((remaining+999)/1000) + " s remaining";
   }
-  return "Heater OFF: PID window / residual heat coast";
+  return _settings.autoMode ? "Heater OFF: PID window / residual heat coast" : "Heater OFF: manual request pending; check live status";
 }
 String IncubatorController::safetyMessage() const {
   if (_safety.critical) return "Critical temperature alarm: heater and turners OFF. Acknowledge after cooling.";

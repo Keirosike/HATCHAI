@@ -19,8 +19,10 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "fomo_detector.hpp"
 #include "hatch_link_config.hpp"
+#include "camera_cloud.hpp"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include <time.h>
@@ -46,6 +48,7 @@ static bool detector_ok = false;
 static bool chick_present = false;
 static uint32_t boot_id = 0;
 static esp_timer_handle_t wifi_retry_timer;
+static std::string localController=HatchLink::ControllerUrl;
 
 static bool post_event(const std::string &url, const char *key, const char *body) {
     if (url.empty() || strlen(key)<32) return false;
@@ -79,8 +82,9 @@ static void link_task(void *) {
         uint32_t sequence=alert_sequence;
         xSemaphoreGive(result_mutex);
         snprintf(body,sizeof(body),"{\"ip\":\"%s\",\"detectorOk\":%s,\"chick\":%s,\"sequence\":%lu,\"boot\":%lu}",address,ok?"true":"false",present?"true":"false",(unsigned long)sequence,(unsigned long)boot_id);
-        post_event(std::string(HatchLink::ControllerUrl)+"/api/camera/event",HatchLink::LocalKey,body);
-        if(pending && time(nullptr)>1704067200 && strlen(HatchLink::PushUrl) && retries<3) {
+        if(strlen(HatchLink::CameraId)){const size_t used=strlen(body);if(used&&used+strlen(HatchLink::CameraId)+16<sizeof(body))snprintf(body+used-1,sizeof(body)-used+1,",\"cameraId\":\"%s\"}",HatchLink::CameraId);}
+        post_event(localController+"/api/camera/event",HatchLink::LocalKey,body);
+        if(HatchLink::LegacyPushEnabled && pending && time(nullptr)>1704067200 && strlen(HatchLink::PushUrl) && retries<3) {
             char event[128];
             snprintf(event,sizeof(event),"{\"eventId\":\"%08lx-%lu\"}",(unsigned long)boot_id,(unsigned long)pending);
             if(post_event(HatchLink::PushUrl,HatchLink::PushKey,event)) pending=0;
@@ -149,6 +153,7 @@ static void detection_task(void *)
         vTaskDelete(nullptr);
         return;
     }
+    HatchCameraCloud::begin(); // Start cloud allocation only after inference initialization succeeds.
     ESP_LOGI(TAG, "Chick-only FOMO background detection enabled");
     xSemaphoreGive(detection_slot);
     DetectionJob job;
@@ -163,7 +168,7 @@ static void detection_task(void *)
         xSemaphoreGive(result_mutex);
         int64_t started = esp_timer_get_time();
         bool success = run_detection(&frame, confidence, boxes, status);
-        heap_caps_free(job.data);
+        bool cloudEvent=false;
         xSemaphoreTake(result_mutex, portMAX_DELAY);
         latest_boxes = success ? boxes : "[]";
         detector_ok=success;
@@ -171,13 +176,14 @@ static void detection_task(void *)
         qualified_hits=chick_present ? (qualified_hits<3 ? qualified_hits+1 : 3) : 0;
         const int64_t now=esp_timer_get_time();
         if(qualified_hits>=3 && now-last_alert>=int64_t(HatchLink::AlertCooldownSeconds)*1000000) {
-            last_alert=now; ++alert_sequence;
+            cloudEvent=true;last_alert=now; ++alert_sequence;
             xQueueOverwrite(alert_queue,&alert_sequence);
         }
         latest_status = status;
         latest_captured = success ? job.captured : 0;
         latest_inference_ms = (esp_timer_get_time() - started) / 1000;
         xSemaphoreGive(result_mutex);
+        if(!cloudEvent||!HatchCameraCloud::submit(job.data,job.length,job.captured))heap_caps_free(job.data);
         // Yield between jobs and never build a queue of stale frames.
         vTaskDelay(pdMS_TO_TICKS(20));
         xSemaphoreGive(detection_slot);
@@ -293,6 +299,15 @@ static void start_access_point(void)
     wifi_config_t station={};
     strlcpy((char*)station.sta.ssid,HatchLink::WifiSsid,sizeof(station.sta.ssid));
     strlcpy((char*)station.sta.password,HatchLink::WifiPassword,sizeof(station.sta.password));
+    // Optional administrative NVS configuration; never create/write it here.
+    nvs_handle_t wifiStore;
+    if(nvs_open("hatchai-wifi",NVS_READONLY,&wifiStore)==ESP_OK){
+        char ssid[33]={},password[65]={},controller[80]={};size_t ssidSize=sizeof(ssid),passwordSize=sizeof(password),urlSize=sizeof(controller);
+        if(nvs_get_str(wifiStore,"ssid",ssid,&ssidSize)==ESP_OK&&strlen(ssid)>0&&nvs_get_str(wifiStore,"password",password,&passwordSize)==ESP_OK&&strlen(password)>=8&&strlen(password)<=63){strlcpy((char*)station.sta.ssid,ssid,sizeof(station.sta.ssid));strlcpy((char*)station.sta.password,password,sizeof(station.sta.password));}
+        if(nvs_get_str(wifiStore,"controller-url",controller,&urlSize)==ESP_OK){unsigned a,b,c,d;char extra;if(sscanf(controller,"http://%u.%u.%u.%u%c",&a,&b,&c,&d,&extra)==4&&a<=255&&b<=255&&c<=255&&d<=255&&(a==10||(a==192&&b==168)||(a==172&&b>=16&&b<=31))){char canonical[80];snprintf(canonical,sizeof(canonical),"http://%u.%u.%u.%u",a,b,c,d);if(strcmp(controller,canonical)==0)localController=controller;}}
+        memset(password,0,sizeof(password));nvs_close(wifiStore);
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&station));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
@@ -303,7 +318,7 @@ static void start_access_point(void)
 
 extern "C" void app_main(void)
 {
-    ESP_LOGI(TAG, "ESP32-S3 Camera 1 starting...");
+    ESP_LOGI(TAG, "ESP32-S3 camera starting (%s)",strlen(HatchLink::CameraId)?HatchLink::CameraId:"unassigned");
 
     size_t psram_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
 

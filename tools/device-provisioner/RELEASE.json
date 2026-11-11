@@ -1,0 +1,89 @@
+{
+  "hardwareExecuted": false,
+  "images": [
+    {
+      "version": 1,
+      "board": "controller",
+      "expectedMac": "b03fd35b6134",
+      "chip": "esp32",
+      "sha256": "9496a3754a28d47331241fee0824f0a6e94f17dd429b09981a48589647ef84b2",
+      "bytes": 199328,
+      "entrypoint": 1074273660,
+      "segments": [
+        [
+          1073414144,
+          1073451564
+        ],
+        [
+          1073453744,
+          1073454316
+        ],
+        [
+          1074266112,
+          1074427324
+        ],
+        [
+          1342177280,
+          1342177308
+        ]
+      ],
+      "ram_only": true
+    },
+    {
+      "version": 1,
+      "board": "upper",
+      "expectedMac": "d885accba598",
+      "chip": "esp32s3",
+      "sha256": "50d5cdeb92ff4fedd3bfbdf88fbdc1cbc94cd0b8c63b3c6a80db87cd9ebcfe4f",
+      "bytes": 211728,
+      "entrypoint": 1077370700,
+      "segments": [
+        [
+          1070259712,
+          1070299460
+        ],
+        [
+          1070301824,
+          1070302372
+        ],
+        [
+          1077362688,
+          1077533988
+        ],
+        [
+          1342177280,
+          1342177308
+        ]
+      ],
+      "ram_only": true
+    },
+    {
+      "version": 1,
+      "board": "lower",
+      "expectedMac": "d885acca0c00",
+      "chip": "esp32s3",
+      "sha256": "44f865f896d7e46188e62d603ad5ef87c02e978470df502990020d25a02a6d98",
+      "bytes": 211728,
+      "entrypoint": 1077370700,
+      "segments": [
+        [
+          1070259712,
+          1070299460
+        ],
+        [
+          1070301824,
+          1070302372
+        ],
+        [
+          1077362688,
+          1077533988
+        ],
+        [
+          1342177280,
+          1342177308
+        ]
+      ],
+      "ram_only": true
+    }
+  ]
+}

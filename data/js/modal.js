@@ -5,6 +5,7 @@ window.HatchModal = {
   confirmBtn: null,
   cancelBtn: null,
   onConfirm: null,
+  closeOnConfirm: true,
   initialized: false,
   previousFocus: null,
 
@@ -27,7 +28,7 @@ window.HatchModal = {
         this.onConfirm();
       }
 
-      this.close();
+      if(this.closeOnConfirm)this.close();
     });
 
     this.cancelBtn.addEventListener("click", () => {
@@ -75,6 +76,7 @@ window.HatchModal = {
       cancelText = "Cancel",
       confirmClass = "modal-btn-danger",
       onConfirm = null,
+      closeOnConfirm = true,
       details = [],
       notice = ""
     } = options;
@@ -85,6 +87,7 @@ window.HatchModal = {
     this.cancelBtn.textContent = cancelText;
     this.confirmBtn.className = "modal-btn " + confirmClass;
     this.onConfirm = onConfirm;
+    this.closeOnConfirm = closeOnConfirm;
     this.previousFocus = document.activeElement;
     const list = document.getElementById("modalDetails");
     if (list) {

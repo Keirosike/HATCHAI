@@ -1,0 +1,31 @@
+Executing action: all (aliases: build)
+Running ninja in directory C:\Users\LENOVO\Desktop\HATCHAI\tools\device-provisioner\build-upper
+Executing "ninja all"...
+[1/5] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/main.cpp.obj
+
+[2/5] Linking C static library esp-idf\main\libmain.a
+
+[3/5] Generating ld/sections.ld
+
+[4/5] Linking CXX executable hatchai_device_setup.elf
+
+[5/5] Generating binary image from built executable
+
+esptool.py v4.12.0
+
+
+Creating esp32s3 image...
+
+
+Merged 2 ELF sections
+
+
+Successfully created esp32s3 image.
+
+
+Generated C:/Users/LENOVO/Desktop/HATCHAI/tools/device-provisioner/build-upper/hatchai_device_setup.bin
+
+
+
+{"version": 1, "board": "upper", "chip": "esp32s3", "sha256": "50d5cdeb92ff4fedd3bfbdf88fbdc1cbc94cd0b8c63b3c6a80db87cd9ebcfe4f", "bytes": 211728, "entrypoint": 1077370700, "segments": [[1070259712, 1070299460], [1070301824, 1070302372], [1077362688, 1077533988], [1342177280, 1342177308]], "ram_only": true}
+RAM ONLY: never run idf.py flash or write_flash with this utility.

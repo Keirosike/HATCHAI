@@ -5,20 +5,24 @@
 #include "IncubatorController.h"
 #include "NetworkManager.h"
 #include "ChickBuzzer.h"
-#include "NotificationRuntime.h"
+#include "CloudSync.h"
 
 class HatchWebServer {
 public:
-  HatchWebServer(IncubatorController& controller, NetworkManager& network,HatchPairing::NotificationRuntime& notifications);
+  HatchWebServer(IncubatorController& controller, NetworkManager& network);
 
   void begin();
+  void attachCloudSync(CloudSync* sync){_cloudSync=sync;}
   void handleClient();
+  void cameraSnapshot(int8_t& upper,int8_t& lower,bool& upperChick,bool& lowerChick)const {const auto now=millis();upper=!_cameras[0].known?-1:uint32_t(now-_cameras[0].seen)<20000?1:0;lower=!_cameras[1].known?-1:uint32_t(now-_cameras[1].seen)<20000?1:0;upperChick=upper==1&&_cameras[0].detector&&_cameras[0].chick;lowerChick=lower==1&&_cameras[1].detector&&_cameras[1].chick;}
 
 private:
+  CloudSync* _cloudSync=nullptr;
   void registerRoutes();
-  void handleNotificationPairing(const char* operation);
   void handleCameraEvent();
   void handleCameraStatus();
+  struct CameraState {String ip;uint32_t seen=0,sequence=0,boot=0;bool known=false,chick=false,detector=false;};
+  CameraState _cameras[2];
   String _cameraIp;
   uint32_t _cameraSeenMs=0, _cameraSequence=0;
   bool _cameraSeen=false, _cameraChick=false, _cameraDetectorOk=false;
@@ -35,6 +39,7 @@ private:
   void handleSessionKeepAlive();
   void handleSessionEnd();
   void handleSessionStatus();
+  void handleCloudEnrollment();
   void handleWifiScan();
   void handleWifiConnect();
   void handleWifiForget();
@@ -59,7 +64,6 @@ private:
   WebServer _server;
   IncubatorController& _controller;
   NetworkManager& _network;
-  HatchPairing::NotificationRuntime& _notifications;
   String _sessionToken;
   String _sessionUsername;
   unsigned long _sessionLastSeenMs = 0;

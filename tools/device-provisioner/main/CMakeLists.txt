@@ -1,0 +1,7 @@
+idf_component_register(SRCS "main.cpp" INCLUDE_DIRS "." REQUIRES nvs_flash esp_partition spi_flash esp_timer mbedtls esp_hw_support bootloader_support)
+target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
+if(NOT DEFINED HATCH_ROLE)
+ message(FATAL_ERROR "HATCH_ROLE is required: 0 controller, 1 upper, 2 lower")
+endif()
+target_compile_definitions(${COMPONENT_LIB} PRIVATE HATCH_ROLE=${HATCH_ROLE})
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_flash_init_main" "-Wl,--wrap=esp_flash_write" "-Wl,--wrap=esp_flash_erase_region" "-Wl,--wrap=esp_flash_erase_chip" "-Wl,--wrap=esp_flash_write_encrypted")

@@ -1,0 +1,110 @@
+{
+  "deploymentId": "01a8b10f-0b3b-4803-935e-db2fa92e5b74",
+  "createdAt": "2026-11-09T21:16:30.22516Z",
+  "versions": [
+    {
+      "version_id": "27f16ea3-d995-47df-8c6c-89240ca2c294",
+      "percentage": 100
+    }
+  ],
+  "runtime": {
+    "etag": "3f4a4952a40e1d2e34f8487bcfd06777e5f47b5cf5a91e9071d83b752c1238c8",
+    "handlers": [
+      "scheduled",
+      "fetch"
+    ],
+    "last_deployed_from": "wrangler"
+  },
+  "bindings": [
+    {
+      "name": "BROWSER_REDEEM_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "BROWSER_REGISTER_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "DB",
+      "type": "d1",
+      "databaseId": "ba5ac6e4-5fce-4201-bdb6-eeb4ebf3214d"
+    },
+    {
+      "name": "DEVICE_CANCEL_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "DEVICE_PAIRING_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "DEVICE_STATUS_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "MANUAL_TEST_NOTIFICATIONS_ENABLED",
+      "type": "plain_text",
+      "value": "false"
+    },
+    {
+      "name": "NATIVE_PUSH_DELIVERY_ENABLED",
+      "type": "plain_text",
+      "value": "false"
+    },
+    {
+      "name": "NATIVE_PUSH_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "NATIVE_PUSH_TEST_ENABLED",
+      "type": "plain_text",
+      "value": "true"
+    },
+    {
+      "name": "NATIVE_PUSH_VAPID_PRIVATE_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "NATIVE_PUSH_VAPID_PUBLIC_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "NATIVE_PUSH_VAPID_SUBJECT",
+      "type": "secret_text"
+    },
+    {
+      "name": "ONLINE_ALLOWED_ORIGINS",
+      "type": "plain_text",
+      "value": "http://127.0.0.1:8080,https://hatchai-8d34c.web.app,https://myhatchai.web.app"
+    },
+    {
+      "name": "PAIRING_HASH_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "REGISTRATION_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "SUPABASE_BACKEND_KEY",
+      "type": "secret_text"
+    },
+    {
+      "name": "SUPABASE_PUBLISHABLE_KEY",
+      "type": "plain_text"
+    },
+    {
+      "name": "SUPABASE_URL",
+      "type": "plain_text",
+      "value": "https://dihufafcztqjuudjeqdm.supabase.co"
+    },
+    {
+      "name": "TEST_NOTIFICATION_LIMITER",
+      "type": "ratelimit"
+    },
+    {
+      "name": "TURNSTILE_SECRET",
+      "type": "secret_text"
+    }
+  ]
+}

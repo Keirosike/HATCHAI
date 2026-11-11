@@ -400,3 +400,8 @@
 .component-list dd { margin-top: 4px; color: var(--gray); font-size: 14px; }
 .component-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .component-actions:empty { display: none; }
+
+.account-box .account-info{min-width:0;flex:1}
+#notificationSettingsHost{margin-left:auto;min-width:0}
+#notificationSettingsHost p{font-size:12px;margin-top:6px;color:var(--gray)}
+@media(max-width:640px){.account-box{flex-wrap:wrap}#notificationSettingsHost{margin-left:0;width:100%;flex-basis:100%}}

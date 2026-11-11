@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { productionCompatibility,productionBundle } from './runtime-config.mjs';
 import { random, b64, hmacKey, signingMessage } from '../src/security.js';
 const require = createRequire(import.meta.url);
 const { Miniflare, convertV4MiniflareOptions } = require(process.env.HATCHAI_MINIFLARE || 'miniflare');
@@ -13,11 +14,8 @@ const rsa = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulus
 const pem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', rsa.privateKey)).toString('base64')}\n-----END PRIVATE KEY-----\n`;
 let googleCalls = 0; const sentMessages = [];
 const options = {
-  modulesRoot: fileURLToPath(new URL('../src/', import.meta.url)),
-  modules: ['index.js', 'pairing.js', 'security.js', 'retention.js', 'test-notification.js', 'online-api.js', 'supabase-session.js'].map(name => ({
-    type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url))
-  })),
-  compatibilityDate: '2026-11-07',
+  ...(await productionBundle()),
+  ...productionCompatibility(),
   d1Databases: { DB: 'hatchai-isolated-pairing-test' },
   d1Persist: false,
   bindings: { PAIRING_HASH_KEY: random(), NOTIFICATION_DEVICE_KEYS: JSON.stringify({ 'hatchai-inc01-controller': { key1: secret } }),

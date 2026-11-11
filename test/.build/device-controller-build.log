@@ -1,0 +1,31 @@
+Executing action: all (aliases: build)
+Running ninja in directory C:\Users\LENOVO\Desktop\HATCHAI\tools\device-provisioner\build-controller
+Executing "ninja all"...
+[1/5] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/main.cpp.obj
+
+[2/5] Linking C static library esp-idf\main\libmain.a
+
+[3/5] Generating ld/sections.ld
+
+[4/5] Linking CXX executable hatchai_device_setup.elf
+
+[5/5] Generating binary image from built executable
+
+esptool.py v4.12.0
+
+
+Creating esp32 image...
+
+
+Merged 2 ELF sections
+
+
+Successfully created esp32 image.
+
+
+Generated C:/Users/LENOVO/Desktop/HATCHAI/tools/device-provisioner/build-controller/hatchai_device_setup.bin
+
+
+
+{"version": 1, "board": "controller", "expectedMac": "b03fd35b6134", "chip": "esp32", "sha256": "9496a3754a28d47331241fee0824f0a6e94f17dd429b09981a48589647ef84b2", "bytes": 199328, "entrypoint": 1074273660, "segments": [[1073414144, 1073451564], [1073453744, 1073454316], [1074266112, 1074427324], [1342177280, 1342177308]], "ram_only": true}
+RAM ONLY: never run idf.py flash or write_flash with this utility.

@@ -1,16 +1,14 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { productionCompatibility,productionBundle } from './runtime-config.mjs';
 const require = createRequire(import.meta.url);
 const { Miniflare, convertV4MiniflareOptions } = require(process.env.HATCHAI_MINIFLARE || 'miniflare');
 const id = '00000000-0000-4000-8000-000000000001';
 let upstreamCalls = 0; let redirect = false;
 const options = {
-  modulesRoot: fileURLToPath(new URL('../src/', import.meta.url)),
-  modules: ['index.js', 'pairing.js', 'security.js', 'retention.js', 'test-notification.js', 'online-api.js', 'supabase-session.js'].map(name => ({
-    type: 'ESModule', path: fileURLToPath(new URL('../src/' + name, import.meta.url))
-  })),
-  compatibilityDate: '2026-11-07',
+  ...(await productionBundle()),
+  ...productionCompatibility(),
   bindings: { SUPABASE_URL: 'https://dihufafcztqjuudjeqdm.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_mock_runtime_only' },
   outboundService: async request => {
     upstreamCalls++;

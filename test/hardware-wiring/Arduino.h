@@ -13,6 +13,7 @@ void exitCritical();
 uint32_t micros();
 uint32_t millis();
 void delay(uint32_t);
+void delayMicroseconds(uint32_t);
 int digitalRead(int);
 void digitalWrite(int,int);
 void pinMode(int,int);

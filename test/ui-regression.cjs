@@ -512,7 +512,7 @@ async function controlChecks(browser,origin) {
   const batches=[1,2].map(i=>({id:'physical-'+i,label:'FLOCK-'+i,name:'Chicken Batch '+i,roller:i,count:10,startDate:'2026-10-10',laidDate:'2026-10-09',status:'Active'}));
   await prepare(page,origin,{hatchai_batches:batches});
   const state={temperature:37.2,humidity:55,sensorValid:true,sensorAgeSeconds:0,wifiStatus:'Connected',rtcTime:'2026-10-20 12:00:00',clockStatus:'Ready',
-    relayPins:{bulb:27,fan:-1,turner:25,turner2:26},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
+    relayPins:{bulb:14,fan:-1,turner:25,turner2:26},recovery:{version:1,ready:true,logging:true,sdAvailable:true,sequence:4},
     control:{autoMode:true,bulbOn:false,manualBulbOn:false,fanOn:true,manualFanOn:true,turnerOn:false,turner2On:false,
       turnDurationSeconds:15,turnDuration2Seconds:15,turnIntervalMinutes:120,turnInterval2Minutes:120,targetTemperature:37.5,targetHumidity:55,
       heaterStatus:'Heater OFF: relay restart delay, 24 s remaining',heaterControl:'pid_tpo',heaterDutyPercent:35,heaterCycleSeconds:20,heaterOnBelow:37.2,heaterOffAbove:37.8},
@@ -570,7 +570,14 @@ async function controlChecks(browser,origin) {
   check(await page.locator('#bulbSwitch').evaluate(el=>el.getBoundingClientRect().width>=44),'Slider checkbox has a real pointer hit target');
   await page.locator('#bulbSwitch').check();await settled();
   check(!state.control.autoMode&&state.control.bulbOn,'A Manual-mode bulb request updates the commanded relay');
+  check((await page.locator('#settingsStatus').innerText()).includes('Controller heater output: ON'), 'Manual success reports controller output rather than claiming physical relay feedback');
   await page.locator('#bulbSwitch').uncheck();await settled();
+  state.safety.sensorReady=false;state.control.heaterStatus='Heater OFF: waiting for qualified DHT22';
+  await page.locator('#bulbSwitch').check();await settled();
+  check(state.control.manualBulbOn&&!state.control.bulbOn&&(await page.locator('#settingsStatus').innerText()).includes('controller output is OFF'), 'Accepted Manual ON held by sensor safety is not falsely reported as ON');
+  check((await page.locator('#settingsStatus').innerText()).includes('qualified DHT22'), 'Manual hold feedback includes the actual controller reason');
+  await page.locator('#bulbSwitch').uncheck();await settled();
+  state.safety.sensorReady=true;state.control.heaterStatus='Manual bulb OFF';
   check(await page.locator('#fanSwitch').isDisabled() && state.control.fanOn,'Direct-powered fan cannot be switched off through the dashboard');
   await page.locator('#bulbSwitch').check();await settled();
   check(state.control.fanOn&&(await page.locator('#fanText').innerText()).includes('Direct power supply'),'Direct-powered fan remains identified during heating');

@@ -1,0 +1,17 @@
+{
+  "name": "HATCHAI",
+  "short_name": "HATCHAI",
+  "start_url": "/online-login.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#d97706",
+  "icons": [
+    {
+      "src": "/shared/a/images/hatchai-logo.webp",
+      "sizes": "1024x1024",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

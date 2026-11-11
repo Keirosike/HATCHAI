@@ -2,6 +2,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("loginForm");
   const usernameInput = document.getElementById("username");
   const passwordInput = document.getElementById("password");
+  const visibility=document.getElementById('visibility');
+  visibility?.addEventListener('click',()=>{const show=passwordInput.type==='password';passwordInput.type=show?'text':'password';visibility.setAttribute('aria-label',show?'Hide password':'Show password');visibility.setAttribute('aria-pressed',String(show));});
   const statusMessage = document.getElementById("status");
 
   const DEFAULT_USERNAME = "admin";
@@ -40,7 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function startLocalSession(username, password) {
     if (!validateLogin(username, password)) {
-      showStatus("Invalid username or password.", "error");
+      showStatus("Invalid email or password.", "error");
       return false;
     }
 
@@ -72,7 +74,8 @@ document.addEventListener("DOMContentLoaded", () => {
     clearStatus();
 
     const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
+    const password = passwordInput.value;
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)){showStatus("Enter a valid email.","error");return;}
 
     if (!username || !password) {
       showStatus("Please fill all fields.", "error");
@@ -89,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!fallbackStarted) {
         if (!canUseLocalFallback) {
-          showStatus(session.message, "error");
+          showStatus(session.status===401?"Invalid email or password.":session.message, "error");
         }
 
         return;

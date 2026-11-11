@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "ports": "operator-select-after-each-reconnection",
+  "boards": [
+    {
+      "board": "controller",
+      "deviceId": "hatchai-inc01-controller",
+      "mac": "b03fd35b6134",
+      "chip": "esp32",
+      "namespace": "hatchai-sync",
+      "keyId": "controller-sync-v1",
+      "binding": "TELEMETRY_DEVICE_KEYS"
+    },
+    {
+      "board": "upper",
+      "deviceId": "hatchai-inc01-cam01",
+      "mac": "d885accba598",
+      "chip": "esp32s3",
+      "namespace": "hatchai-cloud",
+      "wifiNamespace": "hatchai-wifi",
+      "keyId": "upper-camera-v1",
+      "binding": "CAMERA_EVENT_KEYS",
+      "reportedRevision": "v0.2",
+      "reportedPsramBytes": 8388608
+    },
+    {
+      "board": "lower",
+      "deviceId": "hatchai-inc01-cam02",
+      "mac": "d885acca0c00",
+      "chip": "esp32s3",
+      "namespace": "hatchai-cloud",
+      "wifiNamespace": "hatchai-wifi",
+      "keyId": "lower-camera-v1",
+      "binding": "CAMERA_EVENT_KEYS",
+      "reportedRevision": "v0.2",
+      "reportedPsramBytes": 8388608
+    }
+  ]
+}

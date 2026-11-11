@@ -1,0 +1,119 @@
+PASS Certificate UTC conversion matches Unix dates and Gregorian leap rules
+PASS Certificate expiry and not yet valid checks enforce inclusive exact boundaries
+PASS Invalid certificate calendar fields fail closed
+PASS Real storage selection validates enabled selector generation and record
+PASS Dashboard pairing requires server session matching bounded token and origin
+PASS Physical LCD bridge rejects stale background snapshots across rollover
+PASS Credential codec roundtrips explicit binary fields and maximum key ID
+PASS Credential encoding rejects wrong identity key sizes and zero generation
+PASS Unsupported credential version truncated records and every byte corruption fail closed
+PASS Missing credentials and invalid selector never scan another slot
+PASS Successful rotation commits verified inactive record and increasing key version
+PASS Interrupted rotation preserves the explicitly selected credential
+PASS Failed readback and failed selector commit cannot activate a new key
+PASS Revoked or corrupt selected slot cannot fall back to the old key
+PASS First interrupted write does not become implicit provisioning
+PASS A selector changed back to a retired slot cannot resurrect its old key
+PASS Retry backoff is bounded exponential with injected bounded jitter
+PASS HTTP response classification distinguishes auth validation limits and server failures
+PASS Retry After is a lower bound and long delays never shorten into retries
+PASS Retry monotonic elapsed deadlines survive rollover
+PASS Authentication TLS validation malformed and cancellation outcomes are not retried
+PASS All transient outcomes receive bounded scheduling
+PASS Structured success preserves protocol validation
+PASS 429 cooldown blocks status and ambiguous start retries reconcile only
+PASS Cancellation during cooldown clears code and honors the server delay
+PASS Expiry wins over a pending cooldown and cannot resurrect a session
+PASS Cancelling an unissued pairing cannot bypass Retry After or restart automatically
+PASS Late transport results cannot schedule retries for a new generation
+PASS Structured failures never expose diagnostic bodies or automatically retry auth
+PASS UTC gate rejects unsynchronized invalid and out of range time
+PASS UTC synchronization freshness expires exactly at its boundary
+PASS UTC gate latches forward backward and local timezone jumps
+PASS UTC clock accepts bounded drift and monotonic rollover
+PASS Clock gating prevents signing and blocks operation signing after a clock jump
+PASS HTTP parser accepts bounded explicit length and case insensitive headers
+PASS HTTP body accepts exact maximum and rejects oversize mismatch or trailing responses
+PASS HTTP header budget accepts exactly 2048 bytes and rejects the next byte
+PASS HTTP malformed status lines informational statuses and bare linefeeds fail closed
+PASS HTTP header syntax rejects folds controls whitespace names and missing colons
+PASS HTTP rejects conflicting duplicate or ambiguous Content Length
+PASS HTTP rejects conflicting transfer framing and compression
+PASS HTTP Retry After delta bounds reject overflow signs and fractional values
+PASS HTTP Retry After supports strict IMF fixdate with valid UTC only
+PASS HTTP auth validation and server errors discard response bodies
+PASS HTTP parser rejects every truncation and clears previous private data
+PASS Coordinator allows one active one pending and rejects overflow and duplicates
+PASS Coordinator cancellation bypasses a full request queue and rejects stale responses
+PASS Coordinator fences generations and erases cancelled queued completions
+PASS Coordinator rejects invalid UTC oversized requests and method or path changes
+PASS Coordinator rechecks UTC before mock dispatch without blocking
+PASS Idle coordinator still observes and latches UTC jumps
+PASS Coordinator accepts exactly 2048 request bytes and clears pending cancellation
+PASS Coordinator deadlines include queue wait and reject exact boundary completions
+PASS Coordinator timeout rollover and explicit expiry reject stale failure callbacks
+PASS Coordinator bounded parser maps 429 and 5xx and never retains their bodies
+PASS Coordinator mock failures malformed responses and failed start callbacks are sanitized
+PASS Client coordinator integration honors cooldown cancellation and generation fences
+PASS Streaming Content Length succeeds across every two fragment split
+PASS Streaming chunked framing succeeds bytewise and across every split
+PASS Streaming strict chunk extensions accept bounded tokens and quoted strings
+PASS Streaming malformed chunk sizes delimiters and overflows fail closed
+PASS Streaming decoded chunk body limit is exact across chunks
+PASS Streaming trailer budget is exact and sensitive trailer fields are forbidden
+PASS Streaming chunk line count and total metadata budgets are bounded
+PASS Streaming ambiguous framing duplicate transfer coding and HTTP10 chunks are rejected
+PASS Streaming extra bytes in later fragments invalidate and erase prior success
+PASS Streaming every premature chunk EOF is rejected with no partial body exposure
+PASS Streaming 429 Retry After survives fragments and never retains error bodies
+PASS Coordinator streaming waits for EOF and rejects extra bytes before publishing
+PASS Ownership adapter rejects duplicate requests and saturated admission
+PASS Ownership adapter allows only the claimed owner and prevents reentrant I O
+PASS Ownership cancellation works with full queues and drops stale completions
+PASS Ownership cancellation clears a full completion slot before consumers see it
+PASS Ownership higher generation fences older success and failure callbacks
+PASS Ownership streaming feeds fragments without concurrent mock access
+PASS Ownership completion handoff preserves capacity for the next pending request
+PASS Ownership simulated network failures and parser failures stay sanitized
+PASS Ownership queue timeouts remain absolute and propagate without retries
+PASS Ownership stop quiesces active pending and completed work in its owner
+RESOURCE host bytes parser=3440 request=2120 completion=1064 coordinator=8816 ownership=14192
+PASS Parser and ownership resident memory stay within explicit compile budgets
+PASS Oversized credential input is rejected without retaining credentials
+PASS Unavailable until valid injected test credentials
+PASS Invalid key lengths and controller/key identities fail closed
+PASS Idle Requesting CodeVisible Redeemed Registered transitions
+PASS Duplicate starts cannot enqueue another active operation
+PASS Cancellation before issuance invalidates late challenge
+PASS Cancellation during start cannot redisplay a late code
+PASS Visible code clears immediately on cancellation
+PASS Cancellation losing to registration reports Registered
+PASS Unconfirmed cancellation fails closed rather than declaring success
+PASS Generation prevents old operation completing a new attempt
+PASS Duplicate response ticket cannot advance state twice
+PASS Malformed and oversized responses produce generic protocol errors
+PASS Response session ID and challenge purpose are bound
+PASS Unexpected fields, wrong TTL and malformed codes are rejected
+PASS Response pairing ID must match the pending target
+PASS Transport rejection never blocks or exposes a code
+PASS Pending request times out at fifteen seconds
+PASS A response at the request timeout boundary is rejected
+PASS Five minute display expiry is conservative and cannot be extended by status
+PASS Maximum uncertain remote lifetime releases the operation
+PASS Timers remain valid across millis rollover
+PASS Automatic status polling is bounded and single-flight
+PASS Public status never includes codes, keys, protocol bodies or identifiers
+PASS Remote errors are sanitized and preserve uncertain-target protection
+PASS Nonce and UTC validation fail closed
+PASS Generation counter cannot wrap
+PASS Local signature verification rejects changed method/path/payload/signature
+PASS Canonical JSON enforces byte depth node and UTF8 bounds
+PASS Base64url omits padding for all remainder lengths
+PASS Valid-shaped challenge with wrong TTL or additional fields is rejected
+PASS Late status response after display expiry cannot restore a code
+PASS Uncertain remote failure can be resolved with explicit cancellation
+PASS Compact telemetry matches generic signing for valid and invalid readings
+PASS Compact telemetry rejects malformed identity and unbounded or invalid fields
+PASS Camera signing never grants controller pairing scope
+Native state/protocol checks: 116 passed, 0 failed
+Cross-language vectors: 30 passed; 10 native signatures accepted by the actual Worker verifier; tampered requests rejected

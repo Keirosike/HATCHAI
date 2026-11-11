@@ -31,6 +31,17 @@ bool canonicalJson(const std::string& input, std::string& output);
 std::string base64url(const uint8_t* bytes, size_t length);
 bool sign(const std::string& method, const std::string& path,
           const std::string& input, const Credentials& credentials, SignedRequest& output);
+// Explicitly separate camera scope; never authorizes controller pairing routes.
+bool signCamera(const std::string& path,const std::string& input,const Credentials& credentials,SignedRequest& output);
+struct TelemetryFrame {
+  uint32_t capturedAt=0;int16_t temperatureCenti=0;uint16_t humidityCenti=0,sensorAgeMs=0;
+  bool valid=false,heater=false,lower=false,upper=false,automatic=false;
+  int8_t upperCamera=-1,lowerCamera=-1;bool upperChick=false,lowerChick=false;
+};
+// Fixed-schema integer/ASCII serialization avoids linking generic JSON sorting
+// into the controller. The generic implementation remains the test oracle.
+bool signTelemetry(const Credentials&,const TelemetryFrame&,const std::string& eventId,
+                   uint32_t issuedAt,const std::string& nonce,SignedRequest&);
 bool verify(const std::string& method, const std::string& path,
             const std::string& input, const Credentials& credentials, const std::string& signature);
 bool validId(const std::string& value);

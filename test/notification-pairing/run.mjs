@@ -3,7 +3,7 @@ import { readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { canonical, sha, b64, hmacKey, signingMessage, verifyController } from '../../cloudflare-worker/src/security.js';
+import { canonical, sha, b64, hmacKey, signingMessage, verifyController, verifyDevice } from '../../cloudflare-worker/src/security.js';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const local = fileURLToPath(new URL('./', import.meta.url));
 const zig = process.env.HATCHAI_ZIG || path.join(local, '.tools/ziglang/zig.exe');
@@ -30,7 +30,7 @@ const actual = JSON.parse(run(executable, ['--vectors'], { input: JSON.stringify
 assert.equal(actual.length, fixtures.length);
 const keyBytes = Uint8Array.from({ length: 32 }, (_, i) => i); // Public deterministic test material only.
 const encodedKey = b64(keyBytes);
-const env = { NOTIFICATION_DEVICE_KEYS: JSON.stringify({ 'hatchai-inc01-controller': { 'test-key-v1': encodedKey } }) };
+const env = { NOTIFICATION_DEVICE_KEYS: JSON.stringify({ 'hatchai-inc01-controller': { 'test-key-v1': encodedKey }, 'hatchai-inc01-cam01': { 'test-key-v1': encodedKey }, 'hatchai-inc01-cam02': { 'test-key-v1': encodedKey } }) };
 let verified = 0;
 for (let i = 0; i < requests.length; i++) {
   const request = requests[i], result = actual[i];
@@ -45,9 +45,9 @@ for (let i = 0; i < requests.length; i++) {
     const expected = b64(await crypto.subtle.sign('HMAC', await hmacKey(encodedKey), await signingMessage(request.path, payload)));
     assert.equal(result.signature, expected, request.name);
     const body = JSON.parse(result.body);
-    await verifyController(env, request.path, body);
+    if(request.action==='cameraSign'){await verifyDevice(env,request.path,body);await assert.rejects(()=>verifyController(env,request.path,body));}else await verifyController(env, request.path, body);
     body.requestId = 'tampered-abcdefghijklmnopqrstuv';
-    await assert.rejects(() => verifyController(env, request.path, body));
+    await assert.rejects(() => verifyDevice(env, request.path, body));
     verified++;
   }
 }

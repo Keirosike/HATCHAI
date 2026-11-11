@@ -31,8 +31,9 @@ export async function hmacKey(secret) {
   return crypto.subtle.importKey('raw', bytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 export async function protectedHash(env, purpose, value) {
-  need(env.PAIRING_HASH_KEY, 503, 'Security configuration unavailable');
-  return b64(await crypto.subtle.sign('HMAC', await hmacKey(env.PAIRING_HASH_KEY),
+  const secret=purpose.startsWith('device-')?env.DEVICE_API_KEY_PEPPER:env.PAIRING_HASH_KEY;
+  need(secret, 503, 'Security configuration unavailable');
+  return b64(await crypto.subtle.sign('HMAC', await hmacKey(secret),
     encoder.encode(`${purpose}\n${value}`)));
 }
 // Fixed tuple: no JSON canonicalization ambiguity; all fields are signed.

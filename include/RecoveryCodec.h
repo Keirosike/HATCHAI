@@ -88,7 +88,7 @@ public:
        !c["sensorStaleMs"].is<uint32_t>() || !c["sensorIntervalMs"].is<uint32_t>() ||
        !HatchRecovery::sensorTimingCompatible(c["sensorIntervalMs"].as<uint32_t>(),c["sensorStaleMs"].as<uint32_t>()) ||
        c["lowWarmupMs"]!=HatchConfig::LowWarningWarmupMs || c["lowDelayMs"]!=HatchConfig::LowWarningDelayMs ||
-       !c["fanPin"].is<int>() || !HatchConfig::compatibleRecoveryFanPin(c["fanPin"].as<int>()) || c["heaterPin"]!=HatchConfig::Bulb1RelayPin ||
+       !c["fanPin"].is<int>() || !HatchConfig::compatibleRecoveryFanPin(c["fanPin"].as<int>()) || (!c["heaterPin"].is<int>() || !HatchConfig::compatibleRecoveryHeaterPin(c["heaterPin"].as<int>())) ||
        (!oldRollerMap && !HatchConfig::currentRollerPins(lowerPin,upperPin)) || c["relayActiveHigh"]!=HatchConfig::RelayActiveHigh ||
        c["lockdownAfterSeconds"]!=(version==1 ? 18UL*86400 : HatchConfig::LockdownAfterSeconds) ||
        c["sensorLogIntervalMs"]!=HatchConfig::SensorLogIntervalMs ||

@@ -1,0 +1,142 @@
+[
+  {
+    "path": "esp32-devcam/camera/build/.ninja_deps",
+    "safe": true,
+    "reason": "Ninja dependency cache",
+    "sha256": "cef5fe572e79bc40a5ed00a970f9e1caf718ce54803e5b8472d758d42c7a1a8e",
+    "headSha256": "58124254b5bc2b1506cac829085beb362f2b21152fc4957403a91479d1c46164"
+  },
+  {
+    "path": "esp32-devcam/camera/build/.ninja_log",
+    "safe": false,
+    "reason": "Ninja execution log",
+    "sha256": "ce68e97bff18837137493dbf0a1eb2fa1d784015088d660447ee400ebac2b5e4",
+    "headSha256": "7d1ae39701612a245c93cfb7e8b8b3a246277637a24f7bd4324b31f3811f02a6"
+  },
+  {
+    "path": "esp32-devcam/camera/build/CMakeFiles/CMakeConfigureLog.yaml",
+    "safe": false,
+    "reason": "CMake appended log; prior content exact prefix",
+    "sha256": "d7c51a643312df56d015b5b09e9cf3a13b5fa2232deda1695b8de6c44b04a42e",
+    "headSha256": "d51fc205a9d777d31194413042837f40dd5793ab3a7d73fb99332a64f87a4d7e"
+  },
+  {
+    "path": "esp32-devcam/camera/build/CMakeFiles/git-data/HEAD",
+    "safe": true,
+    "reason": "CMake generated Git version snapshot",
+    "sha256": "3d07f5756f342dc8feae042c53ae0c9deb975950009dfef73432a46917a848b1",
+    "headSha256": "28d25bf82af4c0e2b72f50959b2beb859e3e60b9630a5e8c603dad4ddb2b6e80"
+  },
+  {
+    "path": "esp32-devcam/camera/build/CMakeFiles/git-data/head-ref",
+    "safe": true,
+    "reason": "CMake generated Git version snapshot",
+    "sha256": "5693fa280240a3b6b86c69a97a9070947a8ab3ec2aa4e6b5ed498c13c1e5e33a",
+    "headSha256": "409f864bd90df32e1fee8bd51bd531cc0e62307863b9ed0533937d93a3d37ab5"
+  },
+  {
+    "path": "esp32-devcam/camera/build/bootloader/.ninja_log",
+    "safe": false,
+    "reason": "Ninja execution log",
+    "sha256": "6288d0a7b1958c9e9323cf58723258512106572f9655586065f70f87c2b39da0",
+    "headSha256": "bfb2de614f9bb0f27044001f6271d8a40b4cf7aff1e0cac975c50c80d6b143fb"
+  },
+  {
+    "path": "esp32-devcam/camera/build/bootloader/CMakeFiles/git-data/HEAD",
+    "safe": true,
+    "reason": "CMake generated Git version snapshot",
+    "sha256": "272c0a11d564e083aade87dd6edfd2071bac23e979c97f72a0d6a0fc995719d2",
+    "headSha256": "272c0a11d564e083aade87dd6edfd2071bac23e979c97f72a0d6a0fc995719d2"
+  },
+  {
+    "path": "esp32-devcam/camera/build/bootloader/CMakeFiles/git-data/head-ref",
+    "safe": true,
+    "reason": "CMake generated Git version snapshot",
+    "sha256": "272c0a11d564e083aade87dd6edfd2071bac23e979c97f72a0d6a0fc995719d2",
+    "headSha256": "272c0a11d564e083aade87dd6edfd2071bac23e979c97f72a0d6a0fc995719d2"
+  },
+  {
+    "path": "esp32-devcam/camera/build/bootloader/build.ninja",
+    "safe": true,
+    "reason": "CMake-generated build configuration",
+    "sha256": "d22b3e0b33bbf021e1e149aa81eea23b7b5e5404b2c3b71b741fe35b21884e08",
+    "headSha256": "ab61da0fef947af388055dc2cbd15937e87a99535505ed174d0c685546adfb86"
+  },
+  {
+    "path": "esp32-devcam/camera/build/bootloader/gdbinit/symbols",
+    "safe": false,
+    "reason": "ESP-IDF generated GDB symbol-loader",
+    "sha256": "ab70394e8ea004cf99ffb8fdfacf39846dc89cb9dde366b761c1fe008df9bb83",
+    "headSha256": "0638498476cd9cd9dc1ee07ca98968017703d8c3d9462ce6cd22903e7dacb6ca"
+  },
+  {
+    "path": "esp32-devcam/camera/build/build.ninja",
+    "safe": true,
+    "reason": "CMake-generated build configuration",
+    "sha256": "6a741c0e104dd58f12f3300e45a925b587e7e976a1ada9a549bc63a7078151a7",
+    "headSha256": "490bd5bac9ec0ddb5295753f358adc0450e94b485b4d3d978f33f9ff1f2e3f87"
+  },
+  {
+    "path": "esp32-devcam/camera/build/compile_commands.json",
+    "safe": true,
+    "reason": "CMake command export",
+    "sha256": "4b164ec7b92de8fdb1db211db02f818352517cb665b1b1754b1408035c8a91a4",
+    "headSha256": "7e7f7522e4cd4a4afd9f4242a189d99757e1270006905476f8d8c6ae55d4595f"
+  },
+  {
+    "path": "esp32-devcam/camera/build/esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj",
+    "safe": true,
+    "reason": "generated ELF object",
+    "sha256": "dc71c63a349b4de729f33ed8ae0eb34776ab9d2d4a8333ea4a7990553debe936",
+    "headSha256": "4136c31a49b130bd7df9e60b2f67bbce182742032b97d89d15743b4b169e2b3b"
+  },
+  {
+    "path": "esp32-devcam/camera/build/esp-idf/esp_app_format/libesp_app_format.a",
+    "safe": true,
+    "reason": "generated archive",
+    "sha256": "8abfaef7d855202b0132ea8db5e8cdb8140f3ff45e9e305b71f4f0ef8c3349f7",
+    "headSha256": "16045f7f8733c060954f7fb4f71596a5a3b30d5f7dda779d8abfb346cf8c5aa3"
+  },
+  {
+    "path": "esp32-devcam/camera/build/esp-idf/esp_bootloader_format/CMakeFiles/__idf_esp_bootloader_format.dir/esp_bootloader_desc.c.obj",
+    "safe": true,
+    "reason": "generated ELF object",
+    "sha256": "f56e6ca332b0938d361df8260745481cf460ef2476e1bf5fdf6aa206101a8920",
+    "headSha256": "9c06820ed3c0e03ba098a96a34d3843f5dc7d2a7a8844e4241e95258feef72a3"
+  },
+  {
+    "path": "esp32-devcam/camera/build/esp-idf/esp_bootloader_format/libesp_bootloader_format.a",
+    "safe": true,
+    "reason": "generated archive",
+    "sha256": "c383afc533b9a098773202cf047edfff683e36034033c7d199baa3908806848f",
+    "headSha256": "79e3914d1063d77632926237ed7603755444a6082ef638ab41f0a7e965e1fb45"
+  },
+  {
+    "path": "esp32-devcam/camera/build/esp-idf/main/CMakeFiles/__idf_main.dir/camera.cpp.obj",
+    "safe": true,
+    "reason": "generated ELF object",
+    "sha256": "8e4468a7014c2b5a303a94e0d91c9f2d17d560958975cb6b024f1a3402cd05d0",
+    "headSha256": "8e8cb211ab38d385a67f3fd63afac0c617ea460e3caca19018364e8773eb6ad9"
+  },
+  {
+    "path": "esp32-devcam/camera/build/gdbinit/symbols",
+    "safe": false,
+    "reason": "ESP-IDF generated GDB symbol-loader",
+    "sha256": "7939462368600281cd0f0d1409e8099b8580667b017a952acc583a9cff7160a9",
+    "headSha256": "fbf6a0d73a838c5d4a1d5baeb2bb15a9a05d8ac4547c31d277843cece5d1dfd0"
+  },
+  {
+    "path": "esp32-devcam/camera/build/index.html.S",
+    "safe": true,
+    "reason": "generated assembly matches source HTML exactly",
+    "sha256": "8077511a926590b414422075096c32bcd3eb81a79fd4fe93d8ccdde59cf4db7d",
+    "headSha256": "2b6c5f53809ee039ebc8849097ef0447e5ffc06035ebd9c3f1f9bc7b794c4614"
+  },
+  {
+    "path": "esp32-devcam/camera/build/project_description.json",
+    "safe": true,
+    "reason": "ESP-IDF generated description",
+    "sha256": "a0c6d828c9c5a3cb3639d9929d26e00c2fe8522c50fb09dfa6732de2c03131d2",
+    "headSha256": "53091b6e7a921d1623a0e9e3a162f5e7544d03f51b7ed1283222148086f4ce03"
+  }
+]

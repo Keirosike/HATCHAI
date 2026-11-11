@@ -1,0 +1,42 @@
+{
+  "artifacts": [
+    {
+      "board": "controller",
+      "path": ".pio/build/esp32dev/firmware.bin",
+      "bytes": 1293760,
+      "partition_bytes": 1310720,
+      "offset": "0x10000",
+      "remaining": 16960,
+      "sha256": "3171b46ad3e911194b235ebe37bcb710c052816794f6658a6fffd48f63418d0f"
+    },
+    {
+      "board": "filesystem",
+      "path": ".pio/build/esp32dev/spiffs.bin",
+      "bytes": 1441792,
+      "partition_bytes": 1441792,
+      "offset": "0x290000",
+      "remaining": 0,
+      "sha256": "f93163dc1dfbdce2a73df613e4cccb2bd99fd2927bfc4d11ce34c4ddac483c40"
+    },
+    {
+      "board": "upper",
+      "path": "test/.build/camera-images/upper.bin",
+      "bytes": 1331664,
+      "partition_bytes": 4194304,
+      "offset": "0x10000",
+      "remaining": 2862640,
+      "sha256": "56c61cc5719b99a22e6b9ed8267cd05fe914a9dc9ae1efa38ab7512dd643c4aa"
+    },
+    {
+      "board": "lower",
+      "path": "test/.build/camera-images/lower.bin",
+      "bytes": 1331664,
+      "partition_bytes": 4194304,
+      "offset": "0x10000",
+      "remaining": 2862640,
+      "sha256": "1f4b17aa3942fc982c21b32d02b1e078dcbe770828368d20a6788acc6a206502"
+    }
+  ],
+  "hardware_verified": false,
+  "note": "Hashes and fit only; source provenance and physical flash capacity require separate verification."
+}

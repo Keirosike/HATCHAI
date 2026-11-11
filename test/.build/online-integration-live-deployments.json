@@ -1,0 +1,163 @@
+[
+  {
+    "id": "c463fc77-773c-4089-afbf-ddc4ce6f2a15",
+    "source": "dash",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/message": "Deployed version d9389f11",
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "d9389f11-2493-4c42-aaf6-089f0ef46cae",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T19:54:18.277537Z"
+  },
+  {
+    "id": "783c9217-0c48-48e1-9e3a-771187d94cd2",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "secret"
+    },
+    "versions": [
+      {
+        "version_id": "f4c3e47d-7efa-4e68-b461-bd75e525e865",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T19:56:51.577118Z"
+  },
+  {
+    "id": "40de1358-c22d-49c5-80d4-e669a49274c8",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "secret"
+    },
+    "versions": [
+      {
+        "version_id": "48e91477-a72c-4058-8a55-873491b812b1",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T19:57:13.017291Z"
+  },
+  {
+    "id": "29765918-bd47-4cd6-ad8a-737355fc02fb",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "secret"
+    },
+    "versions": [
+      {
+        "version_id": "697afc3b-fdaf-4792-8b52-05b17a6de465",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T19:58:33.1772Z"
+  },
+  {
+    "id": "32a73934-ed56-4cf8-89c8-5b9b1c7fe343",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "95a5e339-33ad-4244-a588-1830e2f28508",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T20:03:16.339546Z"
+  },
+  {
+    "id": "70accbf6-8a81-4567-883e-96f378f1e561",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "644bfad5-6d71-4da0-af8c-900056a34211",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T20:27:38.07431Z"
+  },
+  {
+    "id": "1275471a-9151-4728-a181-55810b019dd8",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "2a2bd316-0fa7-4403-aa1f-1125aaecd2f3",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T20:38:00.418491Z"
+  },
+  {
+    "id": "d2869df5-e4e8-4764-8de9-3a4de2a39339",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "90424be5-5b3a-4827-8a97-7ea91dceff3f",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T20:43:05.701993Z"
+  },
+  {
+    "id": "48110a0c-5a8d-4a5b-a929-00d24c3f1aec",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "secret"
+    },
+    "versions": [
+      {
+        "version_id": "58764c98-66ee-483a-b0d1-e828bab8ec32",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T20:46:21.524702Z"
+  },
+  {
+    "id": "01a8b10f-0b3b-4803-935e-db2fa92e5b74",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "author_email": "kurtzidrickguno.robles@gmail.com",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "27f16ea3-d995-47df-8c6c-89240ca2c294",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-11-09T21:16:30.22516Z"
+  }
+]

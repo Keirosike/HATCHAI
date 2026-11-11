@@ -47,11 +47,14 @@ constexpr int FanRelayPin = -1;
 // Accept the previous fan-pin metadata when reading CRC-checked recovery records.
 // Hardware outputs always use the current configuration, never the saved pin.
 constexpr bool compatibleRecoveryFanPin(int pin) { return pin==FanRelayPin || pin==14; }
-constexpr uint8_t Bulb1RelayPin = 27;
+constexpr uint8_t Bulb1RelayPin = 14;
 constexpr uint8_t TurnerRelayPin = 25; // lower roller
 constexpr uint8_t Turner2RelayPin = 26; // upper roller
 constexpr uint8_t RollerMappingVersion = 2;
-constexpr int PassiveBuzzerPin = 14;
+constexpr int PassiveBuzzerPin = 27;
+// Recovery metadata is never used to select an output GPIO.
+constexpr bool compatibleRecoveryHeaterPin(int pin) { return pin==Bulb1RelayPin || pin==27; }
+static_assert(PassiveBuzzerPin!=Bulb1RelayPin && PassiveBuzzerPin!=TurnerRelayPin && PassiveBuzzerPin!=Turner2RelayPin, "Buzzer must not share a relay GPIO");
 constexpr unsigned BuzzerToneHz = 2200;
 constexpr bool legacyRollerPins(uint8_t lower,uint8_t upper) { return lower==26 && upper==25; }
 constexpr bool currentRollerPins(uint8_t lower,uint8_t upper) { return lower==TurnerRelayPin && upper==Turner2RelayPin; }
@@ -103,6 +106,9 @@ constexpr float HeaterTripC = CriticalTemperatureC;
 constexpr uint32_t HeaterWindowMs = 20000;
 constexpr uint32_t HeaterMinimumOnMs = 5000;
 constexpr uint32_t HeaterMinimumOffMs = 10000;
+// Mechanical relay: no more than one new energization per 30 seconds.
+// Safety OFF remains immediate; this never delays a fault shutdown.
+constexpr uint32_t HeaterMinimumCycleMs = 30000;
 constexpr uint32_t TurnerPulseMs = 120000;
 constexpr uint16_t MinManualTurnSeconds = 1;
 constexpr uint16_t MaxManualTurnSeconds = 600;

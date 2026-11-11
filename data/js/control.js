@@ -1,4 +1,4 @@
-const EXPECTED_RELAY_PINS = { bulb: 27, fan: -1, turner: 25, turner2: 26 };
+const EXPECTED_RELAY_PINS = { bulb: 14, fan: -1, turner: 25, turner2: 26 };
 const HatchControl = {
   elements: {}, devices: {}, safety: {}, recovery: {}, profiles: [], batches: [],
   firmwareReady: false, isSyncing: false, isLoading: false, pollTimer: null,
@@ -198,7 +198,11 @@ const HatchControl = {
     try {
       if (this.isLoading) await this.loadTask;
       const data = await operation(); this.applyRemoteState(data);
-      this.setText('settingsStatus', success); window.HatchToast?.success(success); return true;
+      const feedback=typeof success==='function' ? success(data) : {message:success,warning:false};
+      this.setText('settingsStatus', feedback.message);
+      if(feedback.warning) window.HatchToast?.warning(feedback.message);
+      else window.HatchToast?.success(feedback.message);
+      return true;
     } catch (error) {
       this.setText('settingsStatus', error.message); window.HatchToast?.warning(error.message);
       try { this.applyRemoteState(await HatchEspApi.getData()); } catch (_) { this.firmwareReady=false; }
@@ -214,7 +218,14 @@ const HatchControl = {
       this.loadControllerState(); return;
     }
     // Immediate switches must not save unrelated edits that have not been reviewed.
-    return this.perform(() => HatchEspApi.updateControl(payload), 'Control updated');
+    const feedback=Object.prototype.hasOwnProperty.call(payload,'bulbOn') ? data=>this.heaterFeedback(data,payload.bulbOn) : 'Control updated';
+    return this.perform(() => HatchEspApi.updateControl(payload), feedback);
+  },
+  heaterFeedback(data, requested) {
+    const state=data.control?.bulbOn;
+    if(typeof state!=='boolean')return {message:'Heater request accepted; output state was not confirmed. Check live status.',warning:true};
+    if(state!==requested)return {message:`Heater ${requested?'ON':'OFF'} requested; controller output is ${state?'ON':'OFF'}. ${data.control.heaterStatus||'Check sensor and safety status.'}`,warning:true};
+    return {message:`Controller heater output: ${state?'ON':'OFF'}. Physical relay response is not measured.`,warning:false};
   },
   collectSettingsReview() {
     const payload = this.collectPayload();

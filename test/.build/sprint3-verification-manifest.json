@@ -1,0 +1,22 @@
+{
+  "supabase/migrations/202611100003_telemetry_REVIEW.sql": {
+    "bytes": 8465,
+    "sha256": "d6ea9878114264afff716883a219502dd9c4288cea4d4b3958470d4d278811d2"
+  },
+  "supabase/migrations/202611100004_camera_outbox_REVIEW.sql": {
+    "bytes": 10130,
+    "sha256": "3ed22d2c7d7758cefcfbf3b6353e2c3be48107e3f3ab73e1fac15cecba3c3751"
+  },
+  "supabase/migrations/202611100005_camera_captures_REVIEW.sql": {
+    "bytes": 8528,
+    "sha256": "31cc8ab5067dbc069041cdf33a3c73ac286eff489e4b31b1202aa9029cf0c4eb"
+  },
+  ".pio/build/esp32dev/firmware.bin": {
+    "bytes": 1292512,
+    "sha256": "a43f8d7fa3c8a5e330568e47dc19361fbe9fb47c6886cfabfafbcd5c35f8e7c5"
+  },
+  ".pio/build/esp32dev/spiffs.bin": {
+    "bytes": 1441792,
+    "sha256": "b9b84bab86ac97461613e5d19551a4373440d3a376e6b34ef663c51835c4cd0c"
+  }
+}

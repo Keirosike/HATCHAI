@@ -17,13 +17,14 @@ await mkdir(path.join(root, 'public'), { recursive: true });
 for (const name of ['package-online-dashboard.mjs', 'package-online-release.mjs', 'verify-online-release.mjs']) {
   await cp(path.join(workspace, 'tools', name), path.join(root, 'tools', name));
 }
-for (const name of ['online-login.html', 'online-login.js', 'online-dashboard.js', 'supabase-auth.js',
-  'incubator-read.js', 'online-api-settings.js', 'cloud-notification-settings.js']) {
+for (const name of ['manifest.webmanifest', 'online-login.html', 'online-login.js', 'online-dashboard.js', 'supabase-auth.js',
+  'camera-api.js', 'telemetry-api.js', 'incubator-read.js', 'online-api-settings.js', 'cloud-notification-settings.js']) {
   await cp(path.join(workspace, 'public', name), path.join(root, 'public', name));
 }
 for (const name of ['firebase-config.js', 'push-settings.js', 'firebase-messaging-sw.js']) {
   await cp(path.join(workspace, 'public', name), path.join(root, 'public', name));
 }
+await cp(path.join(workspace, 'public/native-push'), path.join(root, 'public/native-push'), { recursive: true });
 await cp(path.join(workspace, 'firebase.online.json'), path.join(root, 'firebase.online.json'));
 after(async () => {
   if (path.dirname(path.resolve(root)) !== scratchParent || !path.basename(root).startsWith('hatchai-release-test-')) {
@@ -37,7 +38,7 @@ test('Hosting package is reproducible, public-only, and byte-identical to approv
   const manifestPath = path.join(root, 'dist/myhatchai/manifest.json');
   const first = await readFile(manifestPath, 'utf8'); build();assert.equal(await readFile(manifestPath, 'utf8'), first);
   const manifest = JSON.parse(first);
-  assert.equal(manifest.files.length, 22);
+  assert.equal(manifest.files.length, 46);
   assert.equal(manifest.hostingSite, 'myhatchai');
   for (const entry of manifest.files) {
     assert.ok(!/(?:^|\/)(?:test|tools|backups|src|include|\.env|\.dev|node_modules)|\.(?:bin|elf|dpapi|map)$/.test(entry.path));
@@ -47,7 +48,7 @@ test('Hosting package is reproducible, public-only, and byte-identical to approv
     assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256);
   }
   const js = await readdir(path.join(root, 'dist/myhatchai/site/shared/js'));
-  assert.deepEqual(js.sort(), ['app.js', 'dashboard.js', 'dashboardAdapters.js']);
+  assert.deepEqual(js.sort(), ['app.js', 'cameraView.js', 'dashboard.js', 'dashboardAdapters.js', 'modal.js']);
 });
 test('Hosting configuration is scoped to release with no Functions/Firestore or SPA fallthrough', async () => {
   const config = JSON.parse(await readFile(path.join(root, 'firebase.online.json')));
@@ -60,6 +61,9 @@ test('Hosting configuration is scoped to release with no Functions/Firestore or 
   const csp = config.hosting.headers.find(rule => new RegExp(rule.regex).test('/online-login.html') && rule.headers.some(header => header.key === 'Content-Security-Policy')).headers[0].value;
   assert.ok(csp.includes('connect-src \'self\' https://dihufafcztqjuudjeqdm.supabase.co https://hatchai.kurtzidrickguno-robles.workers.dev;'));
   assert.ok(!csp.includes('127.0.0.1'));
+  assert.ok(csp.includes("img-src 'self' blob:;"), 'Authenticated camera Blob previews need an explicit CSP allowance');
+  assert.ok(csp.includes("script-src 'self';"));
+  assert.ok(csp.includes("object-src 'none';"));
 });
 test('pre-upload verification rejects an unreviewed development file', async () => {
   const verify = () => execFileSync(process.execPath, ['tools/verify-online-release.mjs'], { cwd: root, stdio: 'pipe' });

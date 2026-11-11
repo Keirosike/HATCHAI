@@ -41,6 +41,11 @@ be zero. The MD5 and erased terminator/trailing table area must match.
 Build: `powershell -File tools/notification-diagnostic/build.ps1`
 Test: `python tools/notification-diagnostic/test.py -v`
 Binary: `build/hatchai_readonly_diagnostic.bin`
+
+This build is identity-bound to controller MAC `b0:3f:d3:5b:61:34`. It emits
+allowlisted numeric partition-table and per-page NVS validation codes. NVS code
+`14` means fewer than two completely erased pages remain; the diagnostic does
+not compact, repair, initialize, erase, or write the partition.
 Manifest: `build/hatchai_readonly_diagnostic.manifest.json`
 Size: 104,256 bytes.
 SHA-256: `C3CA2C68A0CF308271D1419DFDC92D58E0F3D8AB386C6F0CE5F879B5E2620084`.

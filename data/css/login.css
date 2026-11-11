@@ -359,3 +359,10 @@
     font-size: 15px;
   }
 }
+/* Shared local/online password affordance; no separate full-width action. */
+.input-box.password-input{position:relative}
+.input-box.password-input input{padding-right:48px}
+.password-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:44px;height:44px;padding:0;background:transparent;border:0;border-radius:8px;color:var(--gray);cursor:pointer}
+.password-toggle:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
+.password-toggle .eye-slash{display:none}
+.password-toggle[aria-pressed="true"] .eye-slash{display:block}

@@ -53,6 +53,7 @@ export class HatchaiOnlineAuth {
       return { userId: user.id, expiresAt };
     } finally { password = '';this.#busy = false; }
   }
+  userId() { this.accessToken(); return this.#session.userId; }
   accessToken() {
     if (!this.#session || this.#session.expiresAt <= this.now()) { this.#session = null;throw new Error('Sign in again to continue.'); }
     return this.#session.token;

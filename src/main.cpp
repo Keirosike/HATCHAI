@@ -10,7 +10,8 @@
 #include "OutputDevice.h"
 #include "RealTimeClock.h"
 #include "Dht22Sensor.h"
-#include "NotificationRuntime.h"
+#include "CloudSync.h"
+#include <time.h>
 
 Dht22Sensor environmentSensor(HatchConfig::Dht22Pin);
 OutputDevice bulb1Relay(
@@ -51,9 +52,9 @@ IncubatorController incubator(
   dataLogger,
   lcdDisplay
 );
+CloudSync cloudSync;
 NetworkManager network;
-HatchPairing::NotificationRuntime notifications;
-HatchWebServer webServer(incubator, network, notifications);
+HatchWebServer webServer(incubator, network);
 
 void setup() {
   incubator.initializeOutputs(); // safe relay levels before serial, buses or storage
@@ -69,14 +70,22 @@ void setup() {
 
   network.begin();
   webServer.begin();
-  notifications.begin(); // Optional cloud task; failures never gate local incubation.
+  cloudSync.begin();
+  webServer.attachCloudSync(&cloudSync);
 }
 
 void loop() {
   network.update();
-  notifications.updatePhysicalDisplay(lcdDisplay); // RAM snapshot only; no sockets or NVS.
   incubator.setNetworkStatus(network.statusText());
   incubator.update();
+  static uint32_t lastCloudSample=0;
+  if(cloudSync.ready()&&uint32_t(millis()-lastCloudSample)>=5000){
+    lastCloudSample=millis();const auto reading=environmentSensor.latest();const auto settings=incubator.settings();
+    const uint32_t age=millis()-reading.timestampMs;const uint64_t utc=time(nullptr);
+    const float calibrated=reading.temperatureC+settings.temperatureOffsetC;
+    const bool valid=reading.valid&&age<20000&&isfinite(calibrated)&&calibrated>=-40&&calibrated<=80;
+    if(utc>=1704067200ULL&&utc<4102444800ULL){CloudSyncSample sample{};sample.capturedAt=utc;sample.valid=valid;sample.temperatureCenti=valid?lroundf(calibrated*100):0;sample.humidityCenti=valid?lroundf(reading.humidityPercent*100):0;sample.sensorAgeMs=valid?age:0;sample.heater=bulb1Relay.isOn();sample.lower=turnerRelay.isOn();sample.upper=turner2Relay.isOn();sample.automatic=settings.autoMode;webServer.cameraSnapshot(sample.upperCamera,sample.lowerCamera,sample.upperChick,sample.lowerChick);cloudSync.submit(sample);}
+  }
   webServer.handleClient();
   incubator.completeLoop(); // only feed after the entire HTTP/control loop completes
   delay(2);

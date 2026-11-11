@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/camera.elf

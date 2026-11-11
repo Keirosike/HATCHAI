@@ -68,8 +68,10 @@ const HatchSettings = {
     const confirmPassword = HatchApp.getValue("confirmPassword");
     const savedPassword = HatchStorage.get("hatchaiPassword", "");
 
-    if (!account.fullName || !account.username) {
-      this.setStatus("Please complete full name and username.", "#DC2626", "warning");
+    const existingIdentifier=HatchStorage.get("hatchaiAccount",DEFAULT_ACCOUNT)?.username || DEFAULT_ACCOUNT.username;
+    const validIdentifier=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.username) || account.username===existingIdentifier;
+    if (!account.fullName || !validIdentifier || account.username.length>64) {
+      this.setStatus("Enter your full name and a valid email (up to 64 characters). Existing credentials are unchanged.", "#DC2626", "warning");
       return false;
     }
 

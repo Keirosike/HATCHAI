@@ -5,6 +5,7 @@
 #include <SPIFFS.h>
 #include "JsonBuilder.h"
 #include "SessionPolicy.h"
+#include "EmailIdentifier.h"
 #include "CameraLinkConfig.h"
 #include <ArduinoJson.h>
 
@@ -27,8 +28,8 @@ public:
 
 HatchWebServer::HatchWebServer(
   IncubatorController& controller,
-  NetworkManager& network,HatchPairing::NotificationRuntime& notifications
-) : _server(HatchConfig::WebServerPort), _controller(controller), _network(network),_notifications(notifications) {}
+  NetworkManager& network
+) : _server(HatchConfig::WebServerPort), _controller(controller), _network(network) {}
 
 void HatchWebServer::begin() {
   _chickBuzzer.begin();
@@ -45,9 +46,9 @@ void HatchWebServer::handleClient() {
 void HatchWebServer::registerRoutes() {
   const char* cameraHeaders[]={"X-Camera-Key","X-HatchAI-Session","Origin","Sec-Fetch-Site"};
   _server.collectHeaders(cameraHeaders,4);
-  for(const char* operation:{"start","status","cancel"}){
-    _server.on(String("/api/notifications/")+operation,HTTP_POST,[this,operation](){handleNotificationPairing(operation);});
-  }
+  _server.on("/api/sync",HTTP_GET,[this](){const auto token=_server.header("X-HatchAI-Session");if(!HatchAccess::tokenAllowed(hasActiveSession(),token.length(),token==_sessionToken)){sendJson("{\"message\":\"Sign in required\"}",401);return;}sendJson(_cloudSync?_cloudSync->statusJson():String("{\"configured\":false}"));});
+  _server.on("/api/cloud/enroll",HTTP_POST,[this](){handleCloudEnrollment();});
+  _server.on("/api/cloud/enroll",HTTP_OPTIONS,[this](){handleOptions();});
   _server.on("/api/camera",HTTP_GET,[this](){handleCameraStatus();});
   _server.on("/api/camera/event",HTTP_POST,[this](){handleCameraEvent();});
   _server.on("/api/data", HTTP_GET, [this]() { handleApiData(); });
@@ -84,22 +85,6 @@ void HatchWebServer::registerRoutes() {
   _server.on("/connect-wifi", HTTP_OPTIONS, [this]() { handleOptions(); });
   _server.on(StaticFileUri(), HTTP_GET, [this]() { handleStaticFile(); });
   _server.onNotFound([this]() { sendNotFound(); });
-}
-
-void HatchWebServer::handleNotificationPairing(const char* operation){
-  _server.sendHeader("Cache-Control","no-store");_server.sendHeader("X-Content-Type-Options","nosniff");
-  const String token=_server.header("X-HatchAI-Session"),origin=_server.header("Origin");
-  const bool sameOrigin=(origin.length()==0||origin==String("http://")+_server.hostHeader())&&_server.header("Sec-Fetch-Site")!="cross-site";
-  const auto reply=[this](int code,const String& body){_server.send(code,"application/json",body);};
-  if(!HatchPairing::pairingRouteAllowed(hasActiveSession(),token.length(),token==_sessionToken,sameOrigin)){
-    reply(401,"{\"message\":\"Authenticated dashboard session required\"}");return;
-  }
-  if(_server.args()!=0){reply(400,"{\"message\":\"Arguments are not accepted\"}");return;}
-  if(!strcmp(operation,"start")&&!_notifications.requestStart()){
-    reply(409,"{\"message\":\"Pairing unavailable: check controller credentials, station internet, UTC time, and current pairing\"}");return;
-  }
-  if(!strcmp(operation,"cancel"))_notifications.requestCancel();
-  reply(!strcmp(operation,"status")?200:202,_notifications.statusJson());
 }
 
 void HatchWebServer::handleApiData() {
@@ -250,8 +235,8 @@ void HatchWebServer::handleAccountSave() {
   const String username = _server.hasArg("username") ? _server.arg("username") : "";
   const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
-  if (username.length() == 0) {
-    sendJson("{\"ok\":false,\"message\":\"Username is required\"}", 400);
+  if (!HatchIdentity::email(username.c_str(),username.length()) && username != storedUsername()) {
+    sendJson("{\"ok\":false,\"message\":\"A valid email up to 64 characters is required\"}", 400);
     return;
   }
 
@@ -270,7 +255,7 @@ void HatchWebServer::handleAccountSave() {
 
 void HatchWebServer::handleSessionStart() {
   const String token = _server.hasArg("token") ? _server.arg("token") : "";
-  const String username = _server.hasArg("username") ? _server.arg("username") : "user";
+  const String username = _server.hasArg("email") ? _server.arg("email") : (_server.hasArg("username") ? _server.arg("username") : "");
   const String password = _server.hasArg("password") ? _server.arg("password") : "";
 
   if (token.length() < 8 || token.length()>96 || username.length()>64 || password.length()>128) {
@@ -331,6 +316,19 @@ void HatchWebServer::handleSessionStatus() {
   }
 
   sendJson("{\"active\":true,\"locked\":true}");
+}
+
+void HatchWebServer::handleCloudEnrollment(){
+  const String session=_server.header("X-HatchAI-Session");
+  if(!HatchAccess::tokenAllowed(hasActiveSession(),session.length(),session==_sessionToken)){
+    sendJson("{\"ok\":false,\"message\":\"Sign in required\"}",401);return;
+  }
+  if(!_cloudSync){sendJson("{\"ok\":false,\"message\":\"Cloud synchronization unavailable\"}",503);return;}
+  const String setupToken=bodyArg("setupToken");
+  if(!_cloudSync->requestEnrollment(setupToken)){
+    sendJson("{\"ok\":false,\"message\":\"Enrollment rejected or already configured\"}",409);return;
+  }
+  sendJson("{\"ok\":true,\"message\":\"Enrollment queued securely\"}",202);
 }
 
 void HatchWebServer::handleWifiScan() {
@@ -569,13 +567,10 @@ void HatchWebServer::handleCameraStatus() {
     ",\"chick\":"+HatchJson::boolValue(online && _cameraChick)+
     ",\"url\":"+HatchJson::quote(online ? String("http://")+_cameraIp : String(""))+
     ",\"notificationsUrl\":"+HatchJson::quote(HatchCamera::NotificationsUrl)+
-    ",\"buzzerEnabled\":"+HatchJson::boolValue(HatchConfig::PassiveBuzzerPin==14 || HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33)+
-    ",\"sequence\":"+String(_cameraSequence)+"}");
+    ",\"buzzerEnabled\":"+HatchJson::boolValue(HatchConfig::PassiveBuzzerPin==27 || HatchConfig::PassiveBuzzerPin==14 || HatchConfig::PassiveBuzzerPin==32 || HatchConfig::PassiveBuzzerPin==33)+
+    ",\"sequence\":"+String(_cameraSequence)+",\"cameras\":"+[this](){String out="[";for(unsigned i=0;i<2;++i){if(i)out+=",";const auto& camera=_cameras[i];const bool live=camera.known&&uint32_t(millis()-camera.seen)<20000;out+="{\"cameraId\":"+HatchJson::quote(i==0?HatchCamera::UpperId:HatchCamera::LowerId)+",\"position\":"+HatchJson::quote(i==0?"upper":"lower")+",\"online\":"+HatchJson::boolValue(live)+",\"detectorOk\":"+HatchJson::boolValue(live&&camera.detector)+",\"chick\":"+HatchJson::boolValue(live&&camera.chick)+",\"url\":"+HatchJson::quote(live?String("http://")+camera.ip:String(""))+"}";}return out+"]";}()+",\"captures\":[]}");
 }
 void HatchWebServer::handleCameraEvent() {
-  if(strlen(HatchCamera::Key)<32 || _server.header("X-Camera-Key")!=HatchCamera::Key) {
-    sendJson("{\"message\":\"Camera key rejected or not configured\"}",403); return;
-  }
   if(_server.arg("plain").length()>384) { sendJson("{\"message\":\"Event too large\"}",413); return; }
   StaticJsonDocument<512> doc;
   IPAddress ip;
@@ -584,6 +579,11 @@ void HatchWebServer::handleCameraEvent() {
      !doc["chick"].is<bool>() || !doc["detectorOk"].is<bool>() || !doc["sequence"].is<uint32_t>() || !doc["boot"].is<uint32_t>()) {
     sendJson("{\"message\":\"Invalid camera event\"}",400); return;
   }
+  const char* cameraId=doc["cameraId"]|"";int slot=-1;const char* expected=HatchCamera::Key;
+  if(*cameraId){if(strcmp(cameraId,HatchCamera::UpperId)==0){slot=0;expected=HatchCamera::UpperKey;}else if(strcmp(cameraId,HatchCamera::LowerId)==0){slot=1;expected=HatchCamera::LowerKey;}else{sendJson("{\"message\":\"Unknown camera\"}",403);return;}}
+  if(slot>=0 && *HatchCamera::UpperKey && *HatchCamera::LowerKey && strcmp(HatchCamera::UpperKey,HatchCamera::LowerKey)==0){sendJson("{\"message\":\"Independent camera credentials required\"}",503);return;}
+  if(strlen(expected)<32||_server.header("X-Camera-Key")!=expected){sendJson("{\"message\":\"Camera key rejected or not configured\"}",403);return;}
+  if(slot>=0){auto& camera=_cameras[slot];const uint32_t boot=doc["boot"],sequence=doc["sequence"];if(camera.known&&camera.boot==boot&&sequence<camera.sequence){sendJson("{\"message\":\"Stale camera event\"}",409);return;}if(doc["detectorOk"].as<bool>()&&doc["chick"].as<bool>()&&sequence>0&&(!camera.known||camera.boot!=boot||camera.sequence!=sequence))_chickBuzzer.alert();camera.ip=ip.toString();camera.seen=millis();camera.known=true;camera.detector=doc["detectorOk"];camera.chick=doc["chick"];camera.boot=boot;camera.sequence=sequence;sendJson("{\"ok\":true}");return;}
   if(doc["detectorOk"].as<bool>() && doc["chick"].as<bool>() && doc["sequence"].as<uint32_t>()>0 &&
      (!_cameraSeen || _cameraBoot!=doc["boot"].as<uint32_t>() || _cameraSequence!=doc["sequence"].as<uint32_t>())) _chickBuzzer.alert();
   _cameraBoot=doc["boot"].as<uint32_t>();

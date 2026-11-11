@@ -1,0 +1,41 @@
+[
+  {
+    "path": "/health",
+    "method": "GET",
+    "status": 200,
+    "allowOrigin": null,
+    "allowHeaders": null,
+    "allowMethods": null
+  },
+  {
+    "path": "/online/incubators",
+    "method": "GET",
+    "status": 401,
+    "allowOrigin": null,
+    "allowHeaders": null,
+    "allowMethods": null
+  },
+  {
+    "path": "/online/incubators",
+    "method": "OPTIONS",
+    "origin": "https://myhatchai.web.app",
+    "status": 204,
+    "allowOrigin": "https://myhatchai.web.app",
+    "allowHeaders": "Authorization",
+    "allowMethods": "GET"
+  },
+  {
+    "path": "/online/incubators",
+    "method": "OPTIONS",
+    "origin": "https://foreign.invalid",
+    "status": 403,
+    "allowOrigin": null,
+    "allowHeaders": null,
+    "allowMethods": null
+  },
+  {
+    "websiteStatus": 200,
+    "productionAllowsBlobPreviews": false,
+    "productionScriptRestricted": true
+  }
+]

@@ -6,6 +6,10 @@
   "preview_urls": false,
   "observability": { "enabled": true, "logs": { "enabled": true } },
   "ratelimits": [
+    { "name": "CAMERA_CAPTURE_LIMITER", "namespace_id": "834320", "simple": { "limit": 40, "period": 60 } },
+    { "name": "CAMERA_EVENT_LIMITER", "namespace_id": "834319", "simple": { "limit": 20, "period": 60 } },
+    { "name": "TELEMETRY_RATE_LIMITER", "namespace_id": "834318", "simple": { "limit": 20, "period": 60 } },
+    { "name": "NATIVE_PUSH_LIMITER", "namespace_id": "834317", "simple": { "limit": 30, "period": 60 } },
     { "name": "DEVICE_PAIRING_LIMITER", "namespace_id": "834310", "simple": { "limit": 12, "period": 60 } },
     { "name": "DEVICE_STATUS_LIMITER", "namespace_id": "834311", "simple": { "limit": 120, "period": 60 } },
     { "name": "DEVICE_CANCEL_LIMITER", "namespace_id": "834312", "simple": { "limit": 12, "period": 60 } },
@@ -16,7 +20,17 @@
   ],
   "keep_vars": true,
   "vars": {
+    "CAMERA_CAPTURES_ENABLED": "false",
+    "CAMERA_CAPTURE_STORAGE_REVIEWED": "false",
+    "CAMERA_EVENTS_ENABLED": "false",
+    "TELEMETRY_ENABLED": "false",
+    "TELEMETRY_ROLLUPS_ENABLED": "false",
+    "TELEMETRY_ALERTS_ENABLED": "false",
+    "DEVICE_API_KEY_AUTH_ENABLED": "false",
+    "DEVICE_API_KEY_ENROLLMENT_ENABLED": "false",
     "MANUAL_TEST_NOTIFICATIONS_ENABLED": "false",
+    "NATIVE_PUSH_DELIVERY_ENABLED": "false",
+    "NATIVE_PUSH_TEST_ENABLED": "false",
     "SUPABASE_URL": "https://dihufafcztqjuudjeqdm.supabase.co",
     "ONLINE_ALLOWED_ORIGINS": "http://127.0.0.1:8080,https://hatchai-8d34c.web.app,https://myhatchai.web.app"
   },

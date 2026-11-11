@@ -1,0 +1,350 @@
+ninja: Entering directory `test/.build/camera-sprint3'
+[1/30] Building CXX object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/dl_base_conv_select.cpp.obj
+[2/30] Building CXX object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/dl_base_dwconv_loop.cpp.obj
+[3/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s16_conv2d.S.obj
+[4/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s16_unaligned_conv2d.S.obj
+[5/30] Building CXX object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/dl_base_conv_loop.cpp.obj
+[6/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s8_conv2d.S.obj
+[7/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_w8a16_conv2d.S.obj
+[8/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s16_depthwise_conv2d_block.S.obj
+[9/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s8_depthwise_conv2d.S.obj
+[10/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_s16_unaligned_depthwise_conv2d.S.obj
+[11/30] Building ASM object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/isa/tie728/dl_tie728_w8a16_unaligned_conv2d.S.obj
+[12/30] Performing build step for 'bootloader'
+[1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\LENOVO\Desktop\HATCHAI\test\.build\camera-sprint3\bootloader\esp-idf\esptool_py && C:\Espressif\tools\python\v5.4.4\venv\Scripts\python.exe C:/esp/v5.4.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/bootloader/bootloader.bin"
+
+Bootloader binary size 0x51c0 bytes. 0x2e40 bytes (36%) free.
+
+
+[13/30] No install step for 'bootloader'
+[14/30] Completed 'bootloader'
+[15/30] Building CXX object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/base/dl_kernel.cpp.obj
+[16/30] Building CXX object esp-idf/espressif__esp-dl/CMakeFiles/__idf_espressif__esp-dl.dir/dl/module/src/dl_module_creator.cpp.obj
+[17/30] Linking C static library esp-idf\espressif__esp-dl\libespressif__esp-dl.a
+[18/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/camera.cpp.obj
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp: In function 'void start_web_server()':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:257:86: warning: missing initializer for member 'httpd_uri::user_ctx' [-Wmissing-field-initializers]
+  257 |     httpd_uri_t index_uri = {.uri = "/", .method = HTTP_GET, .handler = index_handler};
+      |                                                                                      ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:258:97: warning: missing initializer for member 'httpd_uri::user_ctx' [-Wmissing-field-initializers]
+  258 |     httpd_uri_t capture_uri = {.uri = "/capture", .method = HTTP_GET, .handler = capture_handler};
+      |                                                                                                 ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp: In function 'void start_access_point()':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::ssid_hidden' [-Wmissing-field-initializers]
+  296 |     };
+      |     ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::beacon_interval' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::csa_count' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::dtim_period' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::pairwise_cipher' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::ftm_responder' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::pmf_cfg' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::sae_pwe_h2e' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::transition_disable' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:296:5: warning: missing initializer for member 'wifi_ap_config_t::sae_ext' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp: In function 'void app_main()':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:347:5: warning: missing initializer for member 'camera_config_t::fb_location' [-Wmissing-field-initializers]
+  347 |     };
+      |     ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:347:5: warning: missing initializer for member 'camera_config_t::sccb_i2c_port' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/camera.cpp:347:5: warning: missing initializer for member 'camera_config_t::jpeg_buffer_size' [-Wmissing-field-initializers]
+[19/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/camera_cloud.cpp.obj
+[20/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/C_/Users/LENOVO/Desktop/HATCHAI/src/NotificationTransportResult.cpp.obj
+[21/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/C_/Users/LENOVO/Desktop/HATCHAI/src/NotificationUtcClock.cpp.obj
+[22/30] Building ASM object esp-idf/main/CMakeFiles/__idf_main.dir/__/__/index.html.S.obj
+[23/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/C_/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp.obj
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp: In function 'bool HatchPairing::{anonymous}::date(View, uint64_t, uint64_t&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:35:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   35 |   if(!month||!day)return false;const unsigned lengths[]={31,28,31,30,31,30,31,31,30,31,30,31};
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:35:32: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   35 |   if(!month||!day)return false;const unsigned lengths[]={31,28,31,30,31,30,31,31,30,31,30,31};
+      |                                ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp: In function 'bool HatchPairing::parseHeaders(const char*, size_t, uint64_t, NotificationHttpResponse&, bool&, size_t&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:51:5: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   51 |     if(!line(p,n,at,v))return false;if(!v.n)break;
+      |     ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:51:37: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   51 |     if(!line(p,n,at,v))return false;if(!v.n)break;
+      |                                     ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:57:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   57 |       if(hasLength||!number(value,HttpBodyLimit,contentLength))return false;hasLength=true;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:57:77: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   57 |       if(hasLength||!number(value,HttpBodyLimit,contentLength))return false;hasLength=true;
+      |                                                                             ^~~~~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:59:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   59 |       if(chunked||!equal(value,"chunked")||std::memcmp(p,"HTTP/1.1",8))return false;chunked=true;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:59:85: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   59 |       if(chunked||!equal(value,"chunked")||std::memcmp(p,"HTTP/1.1",8))return false;chunked=true;
+      |                                                                                     ^~~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:62:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   62 |       if(hasEncoding||!equal(value,"identity"))return false;hasEncoding=true;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:62:61: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   62 |       if(hasEncoding||!equal(value,"identity"))return false;hasEncoding=true;
+      |                                                             ^~~~~~~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:64:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   64 |       if(hasRetry)return false;hasRetry=true;uint64_t seconds=0;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:64:32: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   64 |       if(hasRetry)return false;hasRetry=true;uint64_t seconds=0;
+      |                                ^~~~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp: In function 'bool HatchPairing::{anonymous}::field(View, View&, View&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:79:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   79 |   if(!colon||colon==v.n)return false;name={v.p,colon};value=trim({v.p+colon+1,v.n-colon-1});
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:79:38: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   79 |   if(!colon||colon==v.n)return false;name={v.p,colon};value=trim({v.p+colon+1,v.n-colon-1});
+      |                                      ^~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp: In member function 'bool HatchPairing::NotificationHttpStreamParser::metadataLine()':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:133:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  133 |       if(n>(HttpBodyLimit-decoded_)/16||n*16+digit>HttpBodyLimit-decoded_)return false;n=n*16+digit;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:133:88: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  133 |       if(n>(HttpBodyLimit-decoded_)/16||n*16+digit>HttpBodyLimit-decoded_)return false;n=n*16+digit;
+      |                                                                                        ^
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp: In member function 'HatchPairing::HttpStreamState HatchPairing::NotificationHttpStreamParser::feed(const char*, size_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:145:5: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  145 |     if(phase_==Phase::Complete)return fail();++wire_;const char c=bytes[i];
+      |     ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:145:46: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  145 |     if(phase_==Phase::Complete)return fail();++wire_;const char c=bytes[i];
+      |                                              ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:147:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  147 |       if(headerUsed_==headers_.size())return fail();headers_[headerUsed_++]=c;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:147:53: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  147 |       if(headerUsed_==headers_.size())return fail();headers_[headerUsed_++]=c;
+      |                                                     ^~~~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:150:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  150 |       if(decoded_>=HttpBodyLimit)return fail();if(response_.status==200)response_.body[decoded_]=c;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationHttpParser.cpp:150:48: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  150 |       if(decoded_>=HttpBodyLimit)return fail();if(response_.status==200)response_.body[decoded_]=c;
+      |                                                ^~
+[24/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/C_/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp.obj
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In member function 'bool HatchPairing::{anonymous}::Grammar::hex(uint32_t&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:70:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   70 |       if(p>=s.size()) return false; const char c=s[p++]; int v=-1;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:70:37: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   70 |       if(p>=s.size()) return false; const char c=s[p++]; int v=-1;
+      |                                     ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:72:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   72 |       if(v<0)return false; value=(value<<4)|unsigned(v);
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:72:28: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   72 |       if(v<0)return false; value=(value<<4)|unsigned(v);
+      |                            ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In member function 'bool HatchPairing::{anonymous}::Grammar::str()':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:81:9: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   81 |         if(p>=s.size())return false; const char e=s[p++];
+      |         ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:81:38: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   81 |         if(p>=s.size())return false; const char e=s[p++];
+      |                                      ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In member function 'bool HatchPairing::{anonymous}::Grammar::number()':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:101:7: warning: this 'while' clause does not guard... [-Wmisleading-indentation]
+  101 |       while(p<s.size()&&s[p]>='0'&&s[p]<='9')++p; if(p==begin)return false;
+      |       ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:101:51: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'while'
+  101 |       while(p<s.size()&&s[p]>='0'&&s[p]<='9')++p; if(p==begin)return false;
+      |                                                   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In member function 'bool HatchPairing::{anonymous}::Grammar::value(size_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:113:9: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  113 |         if(!value(depth+1))return false; ws(); if(p>=s.size())return false;
+      |         ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:113:42: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  113 |         if(!value(depth+1))return false; ws(); if(p>=s.size())return false;
+      |                                          ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In function 'bool HatchPairing::{anonymous}::append(std::string&, const std::string&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:129:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  129 |   if(value.size()>MaxJson-out.size())return false;out+=value;return true;
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:129:51: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  129 |   if(value.size()>MaxJson-out.size())return false;out+=value;return true;
+      |                                                   ^~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In function 'bool HatchPairing::{anonymous}::canonicalValue(ArduinoJson::V6215HB2::JsonVariantConst, std::string&, size_t, size_t&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:158:5: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  158 |     if(!append(out,"{"))return false;bool first=true;
+      |     ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:158:38: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  158 |     if(!append(out,"{"))return false;bool first=true;
+      |                                      ^~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:160:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  160 |       if(!first&&!append(out,","))return false;first=false;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:160:48: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  160 |       if(!first&&!append(out,","))return false;first=false;
+      |                                                ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:166:5: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  166 |     if(!append(out,"["))return false;bool first=true;
+      |     ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:166:38: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  166 |     if(!append(out,"["))return false;bool first=true;
+      |                                      ^~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:168:7: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  168 |       if(!first&&!append(out,","))return false;first=false;if(!canonicalValue(child,out,depth+1,nodes))return false;
+      |       ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:168:48: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  168 |       if(!first&&!append(out,","))return false;first=false;if(!canonicalValue(child,out,depth+1,nodes))return false;
+      |                                                ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In function 'bool HatchPairing::validJson(const std::string&)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:205:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  205 |   if(input.empty()||input.size()>MaxJson)return false;std::vector<uint16_t> check;
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:205:55: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  205 |   if(input.empty()||input.size()>MaxJson)return false;std::vector<uint16_t> check;
+      |                                                       ^~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In function 'std::string HatchPairing::base64url(const uint8_t*, size_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:218:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  218 |   if(available)out+=alphabet[(bits<<(6-available))&63];return out;
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:218:56: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  218 |   if(available)out+=alphabet[(bits<<(6-available))&63];return out;
+      |                                                        ^~~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp: In function 'bool HatchPairing::scopedSign(const std::string&, const std::string&, const std::string&, const Credentials&, SignedRequest&, bool)':
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:235:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  235 |   if(ok)candidate.signature=base64url(hash,32);erase(hash,sizeof(hash));if(!ok)return false;
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:235:48: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  235 |   if(ok)candidate.signature=base64url(hash,32);erase(hash,sizeof(hash));if(!ok)return false;
+      |                                                ^~~~~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:238:3: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+  238 |   if(candidate.body.size()>MaxJson)return false;output=candidate;return true;
+      |   ^~
+C:/Users/LENOVO/Desktop/HATCHAI/src/NotificationPairingProtocol.cpp:238:49: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+  238 |   if(candidate.body.size()>MaxJson)return false;output=candidate;return true;
+      |                                                 ^~~~~~
+[25/30] Building CXX object esp-idf/main/CMakeFiles/__idf_main.dir/fomo_detector.cpp.obj
+In file included from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/speechpy.hpp:35,
+                 from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_dsp.h:40,
+                 from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_classifier.h:41,
+                 from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/camera/main/fomo_detector.cpp:3:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp: In static member function 'static int ei::speechpy::feature::mfe(ei::matrix_t*, ei::matrix_t*, ei::signal_t*, uint32_t, float, float, uint16_t, uint16_t, uint32_t, uint32_t, uint16_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:236:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_ixs' [-Wmissing-field-initializers]
+  236 |         stack_frames_info_t stack_frame_info = { 0 };
+      |                                                    ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:236:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_length' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp: In static member function 'static int ei::speechpy::feature::mfe_v3(ei::matrix_t*, ei::matrix_t*, ei::signal_t*, uint32_t, float, float, uint16_t, uint16_t, uint32_t, uint32_t, uint16_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:436:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_ixs' [-Wmissing-field-initializers]
+  436 |         stack_frames_info_t stack_frame_info = { 0 };
+      |                                                    ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:436:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_length' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp: In static member function 'static int ei::speechpy::feature::spectrogram(ei::matrix_t*, ei::signal_t*, float, float, float, uint16_t, uint16_t)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:576:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_ixs' [-Wmissing-field-initializers]
+  576 |         stack_frames_info_t stack_frame_info = { 0 };
+      |                                                    ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/dsp/speechpy/feature.hpp:576:52: warning: missing initializer for member 'ei::speechpy::ei_stack_frames_info::frame_length' [-Wmissing-field-initializers]
+In file included from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_postprocessing.h:47,
+                 from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_classifier.h:44:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h: In member function 'void SORTTracker::process_new_detections(const std::vector<ei_impulse_result_bounding_box_t>&)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::last_ground_truth_update_t' [-Wmissing-field-initializers]
+  799 |                 ei_object_tracking_trace_t trace_result = { 0 };
+      |                                                               ^
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::label' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::x' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::y' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::width' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::height' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::value' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:799:63: warning: missing initializer for member 'ei_object_tracking_trace_t::last_centroid_segment' [-Wmissing-field-initializers]
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h: In function 'EI_IMPULSE_ERROR display_object_tracking(ei_impulse_result_t*, void*)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:916:35: warning: format '%u' expects argument of type 'unsigned int', but argument 4 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  916 |             "  Trace %d: %s [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+      |                                  ~^
+      |                                   |
+      |                                   unsigned int
+      |                                  %lu
+......
+  919 |             trace.x,
+      |             ~~~~~~~                
+      |                   |
+      |                   uint32_t {aka long unsigned int}
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:916:42: warning: format '%u' expects argument of type 'unsigned int', but argument 5 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  916 |             "  Trace %d: %s [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+      |                                         ~^
+      |                                          |
+      |                                          unsigned int
+      |                                         %lu
+......
+  920 |             trace.y,
+      |             ~~~~~~~                       
+      |                   |
+      |                   uint32_t {aka long unsigned int}
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:916:53: warning: format '%u' expects argument of type 'unsigned int', but argument 6 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  916 |             "  Trace %d: %s [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+      |                                                    ~^
+      |                                                     |
+      |                                                     unsigned int
+      |                                                    %lu
+......
+  921 |             trace.width,
+      |             ~~~~~~~~~~~                              
+      |                   |
+      |                   uint32_t {aka long unsigned int}
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/postprocessing/ei_object_tracking_sort.h:916:65: warning: format '%u' expects argument of type 'unsigned int', but argument 7 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  916 |             "  Trace %d: %s [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+      |                                                                ~^
+      |                                                                 |
+      |                                                                 unsigned int
+      |                                                                %lu
+......
+  922 |             trace.height);
+      |             ~~~~~~~~~~~~                                         
+      |                   |
+      |                   uint32_t {aka long unsigned int}
+In file included from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_classifier.h:46:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_print_results.h: In function 'void ei_print_results(ei_impulse_handle_t*, ei_impulse_result_t*)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_print_results.h:107:32: warning: format '%u' expects argument of type 'unsigned int', but argument 2 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  107 |             ei_printf(") [ x: %u, y: %u, width: %u, height: %u ]\n", trace.x, trace.y, trace.width, trace.height);
+      |                               ~^                                     ~~~~~~~
+      |                                |                                           |
+      |                                unsigned int                                uint32_t {aka long unsigned int}
+      |                               %lu
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_print_results.h:107:39: warning: format '%u' expects argument of type 'unsigned int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  107 |             ei_printf(") [ x: %u, y: %u, width: %u, height: %u ]\n", trace.x, trace.y, trace.width, trace.height);
+      |                                      ~^                                       ~~~~~~~
+      |                                       |                                             |
+      |                                       unsigned int                                  uint32_t {aka long unsigned int}
+      |                                      %lu
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_print_results.h:107:50: warning: format '%u' expects argument of type 'unsigned int', but argument 4 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  107 |             ei_printf(") [ x: %u, y: %u, width: %u, height: %u ]\n", trace.x, trace.y, trace.width, trace.height);
+      |                                                 ~^                                     ~~~~~~~~~~~
+      |                                                  |                                           |
+      |                                                  unsigned int                                uint32_t {aka long unsigned int}
+      |                                                 %lu
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_print_results.h:107:62: warning: format '%u' expects argument of type 'unsigned int', but argument 5 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  107 |             ei_printf(") [ x: %u, y: %u, width: %u, height: %u ]\n", trace.x, trace.y, trace.width, trace.height);
+      |                                                             ~^                                      ~~~~~~~~~~~~
+      |                                                              |                                            |
+      |                                                              unsigned int                                 uint32_t {aka long unsigned int}
+      |                                                             %lu
+In file included from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_classifier.h:63:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/inferencing_engines/tflite_eon.h: In function 'int extract_tflite_eon_features(ei::signal_t*, ei::matrix_t*, void*, float)':
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/inferencing_engines/tflite_eon.h:467:5: warning: missing initializer for member 'ei_learning_block_config_tflite_graph_t::dequantize_output' [-Wmissing-field-initializers]
+  467 |     };
+      |     ^
+In file included from C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/edge-impulse-sdk/classifier/ei_run_classifier.h:99:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/model-parameters/model_variables.h: At global scope:
+C:/Users/LENOVO/Desktop/HATCHAI/esp32-devcam/edge-impulse-model/model-parameters/model_variables.h:156:1: warning: missing initializer for member 'ei_postprocessing_block_t::input_block_id' [-Wmissing-field-initializers]
+  156 | };
+      | ^
+[26/30] Linking C static library esp-idf\main\libmain.a
+[27/30] Generating ld/sections.ld
+[28/30] Linking CXX executable camera.elf
+[29/30] Generating binary image from built executable
+esptool.py v4.12.0
+
+Creating esp32s3 image...
+
+Merged 2 ELF sections
+
+Successfully created esp32s3 image.
+
+Generated C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/camera.bin
+[30/30] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\LENOVO\Desktop\HATCHAI\test\.build\camera-sprint3\esp-idf\esptool_py && C:\Espressif\tools\python\v5.4.4\venv\Scripts\python.exe C:/esp/v5.4.4/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/partition_table/partition-table.bin C:/Users/LENOVO/Desktop/HATCHAI/test/.build/camera-sprint3/camera.bin"
+camera.bin binary size 0x1451d0 bytes. Smallest app partition is 0x400000 bytes. 0x2bae30 bytes (68%) free.
+

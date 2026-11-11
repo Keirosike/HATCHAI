@@ -133,11 +133,13 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     const textColor = "#4B5563";
     const darkText = "#111827";
 
-    const tempMin = Math.floor(Math.min(...tempData) - 0.5);
-    const tempMax = Math.ceil(Math.max(...tempData) + 0.5);
+    const temperatures=tempData.filter(Number.isFinite),humidities=humidityData.filter(Number.isFinite);
+    if(!temperatures.length||!humidities.length)return;
+    const tempMin = Math.floor(Math.min(...temperatures) - 0.5);
+    const tempMax = Math.ceil(Math.max(...temperatures) + 0.5);
 
-    const humidityMin = Math.floor(Math.min(...humidityData) - 5);
-    const humidityMax = Math.ceil(Math.max(...humidityData) + 5);
+    const humidityMin = Math.floor(Math.min(...humidities) - 5);
+    const humidityMax = Math.ceil(Math.max(...humidities) + 5);
 
     const chartWidth = w - paddingLeft - paddingRight;
     const chartHeight = h - paddingTop - paddingBottom;
@@ -257,9 +259,10 @@ function init({ adapter, onOnlineStatus = () => {} }) {
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
 
-      const points = [];
+      const points = [];let previousValid=false;
 
       data.forEach((value, i) => {
+        if(!Number.isFinite(value)){previousValid=false;return;}
         const x = getX(i, data.length);
         const y = getY(value);
 
@@ -274,7 +277,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
           displayName
         });
 
-        if (i === 0) {
+        if (!previousValid) {
           ctx.moveTo(x, y);
         } else {
           const prevX = getX(i - 1, data.length);
@@ -283,6 +286,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
 
           ctx.bezierCurveTo(midX, prevY, midX, y, x, y);
         }
+        previousValid=true;
       });
 
       ctx.stroke();
@@ -880,6 +884,8 @@ function init({ adapter, onOnlineStatus = () => {} }) {
       'summaryTemp', 'summaryHumidity', 'summaryRelay', 'summaryTurning', 'lastTurnValue', 'turnsTodayValue',
       'totalTurnsValue', 'actualTurnIntervalValue', 'lastAnomalyValue', 'sensorStatusValue', 'rtcValue', 'sdValue', 'wifiValue'];
     unknown.forEach(id => setText(id, 'Unavailable'));
+    // Unknown words use the existing status-value typography, not numeric sizing.
+    ['tempValue','humidityValue'].forEach(id=>document.getElementById(id)?.classList.add('value-small'));
     ['temperatureReadingNote', 'humidityReadingNote', 'relayBadge', 'motorSubtext', 'chartStatus'].forEach(id => setText(id, 'Monitoring not connected yet'));
     setText('wifiStatus', 'Online account');
     setText('lastUpdated', 'Last synchronization: unavailable');
@@ -896,6 +902,35 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     onOnlineStatus(data.incubators.length > 0);
     // This API does not provide a telemetry timestamp. Do not substitute fetch time.
     setText('lastUpdated', data.lastSyncedAt ? 'Last synchronization: ' + data.lastSyncedAt : 'Last synchronization: unavailable');
+    const cloud=data.synchronized;
+    if(!cloud)return;
+    setText('wifiStatus',cloud.connection==='stale'?'Stale':cloud.online?'Online':'Offline');
+    setText('safetyBanner',cloud.connection==='stale'?'Telemetry is stale; current readings are hidden. Hardware controls remain local.':cloud.online?'Cloud monitoring; hardware controls remain local.':'Incubator offline: readings are no longer current. Hardware controls remain local.');
+    if(cloud.alerts?.length){const alert=cloud.alerts[0];setText('lastAnomalyValue',alert.kind.replaceAll('_',' ')+' · '+alert.status+' · '+new Date(alert.createdAt).toLocaleString());}
+    const sample=cloud.online&&cloud.connection!=='stale'?cloud.latest?.sample:null;
+    if(sample){
+      if(sample.sensorValid){setText('tempValue',(sample.temperatureCenti/100).toFixed(1)+DEGREE_C);setText('humidityValue',(sample.humidityCenti/100).toFixed(1)+'%');setText('temperatureReadingNote','Synchronized sensor reading');setText('humidityReadingNote','Synchronized sensor reading');}
+      setText('sensorStatusValue',sample.sensorValid?'Valid':'No valid reading');
+      setText('relayValue',sample.heaterOn?'Heating ON':'Heating OFF');setText('relayBadge','Reported output command');
+      setText('motorValue',sample.lowerOn||sample.upperOn?'Turning':'Idle');setText('motorSubtext','Lower: '+(sample.lowerOn?'ON':'OFF')+' / Upper: '+(sample.upperOn?'ON':'OFF'));
+      setText('summaryRelay',sample.autoMode?'Automatic':'Manual');setText('summaryTurning',sample.lowerOn||sample.upperOn?'Turning':'Idle');
+    }
+    for(const range of ['hour','day','week','month']){
+      if(cloud.historyKind==='utc-30-minute'){
+        const end=Math.floor(Date.parse(cloud.serverTime)/1800000)*1800000;
+        const start=end-(range==='hour'?3600000:86400000);
+        const byTime=new Map(cloud.history.map(p=>[Date.parse(p.intervalStart),p]));const points=[];
+        for(let at=start;at<end;at+=1800000){const p=byTime.get(at);points.push({at,t:p?p.averageTemperatureCenti/100:null,h:p?p.averageHumidityCenti/100:null});}
+        chartDataSets[range]={labels:points.map(p=>new Date(p.at).toLocaleString()),temperature:points.map(p=>p.t),humidity:points.map(p=>p.h)};
+      }else{
+        const points=cloud.history.filter(p=>p.sample.sensorValid&&(range!=='hour'||Date.parse(p.capturedAt)>=Date.parse(cloud.serverTime)-3600000));
+        chartDataSets[range]={labels:points.map(p=>new Date(p.capturedAt).toLocaleTimeString()),temperature:points.map(p=>p.sample.temperatureCenti/100),humidity:points.map(p=>p.sample.humidityCenti/100)};
+      }
+    }
+    document.querySelectorAll('[data-range="week"],[data-range="month"]').forEach(button=>button.disabled=true);
+    tempData=chartDataSets[currentRange].temperature;humidityData=chartDataSets[currentRange].humidity;chartLabels=chartDataSets[currentRange].labels;
+    setText('chartStatus',cloud.history.length?(cloud.historyKind==='utc-30-minute'?'30-minute UTC averages; gaps indicate unavailable history':'Synchronized samples (up to 24 hours)'):'No synchronized history');renderCharts();
+
   }
 }
 window.HatchDashboard = Object.freeze({ init });

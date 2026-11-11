@@ -1,0 +1,12 @@
+{
+  "upper": {
+    "path": "test\\.build\\camera-images\\upper.bin",
+    "bytes": 1331664,
+    "sha256": "56c61cc5719b99a22e6b9ed8267cd05fe914a9dc9ae1efa38ab7512dd643c4aa"
+  },
+  "lower": {
+    "path": "test\\.build\\camera-images\\lower.bin",
+    "bytes": 1331664,
+    "sha256": "1f4b17aa3942fc982c21b32d02b1e078dcbe770828368d20a6788acc6a206502"
+  }
+}

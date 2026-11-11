@@ -11,19 +11,21 @@
     }
     return Object.freeze(adapter);
   }
-  function online({ readIncubators, accessToken, initialIncubators }) {
+  function online({ readIncubators, accessToken, initialIncubators,readTelemetry,selectedIncubator }) {
     if (typeof readIncubators !== 'function' || typeof accessToken !== 'function') throw new Error('Online authentication unavailable.');
-    let initial = initialIncubators;
-    const adapter = { mode: 'online', batchStore: null, pollMs: 60000,
+    let initial = initialIncubators,lastAccountRead=Date.now(),lastToken=null;
+    const adapter = { mode: 'online', batchStore: null, pollMs: readTelemetry?2000:60000,
       capabilities: Object.freeze({ telemetry: false, batches: false, predictions: false, cameras: false, controls: false }),
       async getData() {
         // Check session expiry even when using the just-verified initial result.
         const token = accessToken();
-        const incubators = initial !== undefined ? initial : await readIncubators(token);
-        initial = undefined;
-        return { incubators, telemetry: unavailable('Telemetry'), history: unavailable('History'),
+        if(initial===undefined||(lastToken!==null&&lastToken!==token)||Date.now()-lastAccountRead>=60000){initial=await readIncubators(token);lastAccountRead=Date.now();}
+        lastToken=token;const incubators=initial;if(!readTelemetry)initial=undefined;
+        const id=selectedIncubator?.()||incubators[0]?.id;
+        const synchronized=id&&readTelemetry?await readTelemetry(token,id):null;
+        return { incubators, synchronized, telemetry: synchronized?{available:true}:unavailable('Telemetry'), history: unavailable('History'),
           batches: unavailable('Batches'), predictions: unavailable('Predictions'), cameras: unavailable('Camera history'),
-          lastSyncedAt: null };
+          lastSyncedAt: synchronized?.latest?.receivedAt??null };
       },
       async getHistory() { return unavailable('History'); },
       async getBatches() { return unavailable('Batches'); },

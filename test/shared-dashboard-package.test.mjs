@@ -15,10 +15,10 @@ test('package is deterministic, copies canonical assets exactly, and excludes lo
   for (const entry of manifest.files) {
     const bytes = await readFile(new URL('../public/shared/' + entry.path, import.meta.url));
     assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256);
-    if (entry.path !== 'dashboard-fragment.html') assert.deepEqual(bytes, await readFile(new URL('../' + entry.source, import.meta.url)));
+    if (!['dashboard-fragment.html','settings-fragment.html','batch-fragment.html','camera-fragment.html','control-fragment.html','log-fragment.html'].includes(entry.path)) assert.deepEqual(bytes, await readFile(new URL('../' + entry.source, import.meta.url)));
   }
   const js = await readdir(new URL('../public/shared/js/', import.meta.url));
-  assert.deepEqual(js.sort(), ['app.js', 'dashboard.js', 'dashboardAdapters.js']);
+  assert.deepEqual(js.sort(), ['app.js', 'cameraView.js', 'dashboard.js', 'dashboardAdapters.js', 'modal.js']);
   const fragment = await readFile(new URL('../public/shared/dashboard-fragment.html', import.meta.url), 'utf8');
   assert.ok(fragment.includes('id="environmentChart"'));
   assert.ok(!/<script|authSession|espApi|notificationPairing/.test(fragment));
