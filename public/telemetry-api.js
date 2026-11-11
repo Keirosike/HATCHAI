@@ -13,12 +13,12 @@ export function normalizeTelemetry(body,id){
 // Render every 2 s, fetch at most every 5 s, and re-age cached data monotonically.
 export function createTelemetryReader(localWorker=false,fetcher=fetch,clock=()=>performance.now()){
  let entry=null,pending=null,conditional={clock};
- return async(token,id)=>{
+ return async(token,id,{force=false}={})=>{
   const now=clock();
-  if(entry&&entry.id===id&&entry.token===token&&now-entry.at<5000){const elapsed=Math.max(0,now-entry.at);return normalizeTelemetry({...entry.body,serverTime:new Date(Date.parse(entry.body.serverTime)+elapsed).toISOString()},id);}
+  if(!force&&entry&&entry.id===id&&entry.token===token&&now-entry.at<5000){const elapsed=Math.max(0,now-entry.at);return normalizeTelemetry({...entry.body,serverTime:new Date(Date.parse(entry.body.serverTime)+elapsed).toISOString()},id);}
   if(pending&&pending.id===id&&pending.token===token)return pending.promise;
   if(conditional.id!==id||conditional.token!==token){conditional={clock,id,token,etag:null,body:null};}
-  const ticket={id,token};ticket.promise=readTelemetry(token,id,localWorker,fetcher,conditional).then(data=>{if(data)entry={id,token,at:clock(),body:{...data,incubatorId:id}};else entry=null;return data;}).finally(()=>{if(pending===ticket)pending=null;});pending=ticket;return ticket.promise;
+  const ticket={id,token};ticket.promise=readTelemetry(token,id,localWorker,fetcher,conditional).then(data=>{if(pending===ticket)entry=data?{id,token,at:clock(),body:{...data,incubatorId:id}}:null;return data;}).catch(error=>{if(pending===ticket){entry=null;conditional={clock};}throw error;}).finally(()=>{if(pending===ticket)pending=null;});pending=ticket;return ticket.promise;
  };
 }
 export async function readTelemetry(token,id,localWorker=false,fetcher=fetch,conditional=null){

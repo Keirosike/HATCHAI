@@ -39,6 +39,7 @@ void HatchWebServer::begin() {
 }
 
 void HatchWebServer::handleClient() {
+  if(_cameraEvents&&_cameraEvents->takeAlert())_chickBuzzer.alert();
   _chickBuzzer.update();
   _server.handleClient();
 }
@@ -561,6 +562,7 @@ void HatchWebServer::refreshSession(const String& token, const String& username)
 }
 
 void HatchWebServer::handleCameraStatus() {
+  if(_cameraEvents&&_cameraEvents->active()){sendJson(_cameraEvents->statusJson());return;}
   const bool online=_cameraSeen && uint32_t(millis()-_cameraSeenMs)<20000;
   sendJson(String("{\"online\":")+HatchJson::boolValue(online)+
     ",\"detectorOk\":"+HatchJson::boolValue(online && _cameraDetectorOk)+

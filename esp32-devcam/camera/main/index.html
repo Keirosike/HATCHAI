@@ -9,7 +9,7 @@ button{padding:12px 24px;margin:12px 8px 12px 0;border:0;border-radius:8px;curso
 button:disabled{opacity:.5;cursor:default}#record.active{background:#b42335;color:white}a{color:#80d8ff}
 #status{color:#a9c4d2}h1{margin-bottom:4px}
 </style></head><body>
-<h1>HATCHAI FOMO Chick Detection</h1><p>Chicks only · Place chicks inside the central outlined area. Markers show object centres, not full object outlines.</p>
+<h1>HATCHAI MobileNetV2 Chick Classification</h1><p>Chicks only · Place chicks inside the central outlined area. Markers show object centres, not full object outlines.</p>
 <button id="toggle">Pause</button><span id="status" role="status">Connecting…</span>
 <div><button id="photo" disabled>Save photo</button><button id="record" disabled>Record MP4</button></div>
 <p id="saveStatus" role="status">Waiting for the camera. Photos and videos include the visible detection boxes.</p>
@@ -17,8 +17,8 @@ button:disabled{opacity:.5;cursor:default}#record.active{background:#b42335;colo
 <div id="downloads"></div>
 <p id="detectorStatus" role="status">Waiting for detector status…</p>
 <p><label>Confidence: <output id="thresholdValue">50%</output>
-<input id="threshold" type="range" min="10" max="90" value="50" step="5"></label><br>
-<small>Lower for more candidates; raise to reduce false detections. AI boxes update independently of video.</small></p>
+<input id="threshold" type="range" min="50" max="95" value="50" step="5"></label><br>
+<small>Lower for more candidates; raise to reduce false detections. Classification updates independently of video.</small></p>
 <canvas id="view" width="640" height="480"></canvas><p id="results"></p>
 <script>
 const canvas=document.getElementById('view'),ctx=canvas.getContext('2d');
@@ -119,10 +119,12 @@ async function live(){
      canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
     }
     ctx.drawImage(image,0,0);ctx.lineWidth=3;ctx.font='16px system-ui';
-    const cropSide=Math.min(canvas.width,canvas.height);
-    ctx.save();ctx.strokeStyle='#ffffff80';ctx.lineWidth=1;ctx.setLineDash([6,6]);
-    ctx.strokeRect((canvas.width-cropSide)/2,(canvas.height-cropSide)/2,cropSide,cropSide);ctx.restore();
     for(const detection of detections){
+     if(detection.kind==='classification'){
+      const label=`Chick presence: ${Math.round(detection.score*100)}%`;
+      ctx.fillStyle='#06452b';ctx.fillRect(8,8,ctx.measureText(label).width+16,28);ctx.fillStyle='#fff';ctx.fillText(label,16,28);continue;
+     }
+     if(!Array.isArray(detection.box)||detection.box.length!==4)continue;
      const [x1,y1,x2,y2]=detection.box;
      const x=Math.max(0,Math.min(canvas.width,x1)),y=Math.max(0,Math.min(canvas.height,y1));
      const right=Math.max(x,Math.min(canvas.width,x2)),bottom=Math.max(y,Math.min(canvas.height,y2));
@@ -147,9 +149,9 @@ async function live(){
    const fps=previousFrameAt?`${(1000/(frameAt-previousFrameAt)).toFixed(1)} FPS`:'Measuring FPS…';
    previousFrameAt=frameAt;
    status.textContent=`${fps} · ${canvas.width}×${canvas.height} · ${transferMs} ms request · ${response.headers.get('X-Capture-Ms')||'?'} ms capture · ${response.headers.get('X-Inference-Ms')} ms AI · ${age<0?'AI warming up':age+' ms since detection frame'}`;
-   results.textContent=detections.length?detections.map(d=>`${d.name||('Class '+d.class)}: ${(d.score*100).toFixed(0)}%`).join(' | '):(age<0?'Preparing detector…':age>=2000?'Waiting for fresh detection…':'No objects detected');
+   results.textContent=detections.length?detections.map(d=>`${d.name||('Class '+d.class)}: ${(d.score*100).toFixed(0)}%`).join(' | '):(age<0?'Preparing detector…':age>=2000?'Waiting for fresh detection…':'No chick classification above threshold');
   }catch(error){previousFrameAt=0;status.textContent=error.message;await delay(1000);}
-  // Video uses latest completed detections; boxes can lag moving objects.
+  // Video uses latest completed detections; classification can lag the current video frame.
   await delay(Math.max(0,previewFrameMs-(performance.now()-started)));
  }
 }

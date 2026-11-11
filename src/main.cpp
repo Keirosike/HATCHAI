@@ -11,6 +11,7 @@
 #include "RealTimeClock.h"
 #include "Dht22Sensor.h"
 #include "CloudSync.h"
+#include "CameraEventStore.h"
 #include <time.h>
 
 Dht22Sensor environmentSensor(HatchConfig::Dht22Pin);
@@ -53,6 +54,7 @@ IncubatorController incubator(
   lcdDisplay
 );
 CloudSync cloudSync;
+CameraEventStore cameraEvents;
 NetworkManager network;
 HatchWebServer webServer(incubator, network);
 
@@ -69,6 +71,9 @@ void setup() {
   }
 
   network.begin();
+  cameraEvents.begin();
+  webServer.attachCameraEvents(&cameraEvents);
+  cloudSync.attachCameraEvents(&cameraEvents);
   webServer.begin();
   cloudSync.begin();
   webServer.attachCloudSync(&cloudSync);
@@ -78,6 +83,8 @@ void loop() {
   network.update();
   incubator.setNetworkStatus(network.statusText());
   incubator.update();
+  const uint32_t rtcEpoch=realTimeClock.epoch();
+  cameraEvents.observeClock(rtcEpoch>1704067200U+HatchConfig::ClockUtcOffsetSeconds?rtcEpoch-HatchConfig::ClockUtcOffsetSeconds:0);
   static uint32_t lastCloudSample=0;
   if(cloudSync.ready()&&uint32_t(millis()-lastCloudSample)>=5000){
     lastCloudSample=millis();const auto reading=environmentSensor.latest();const auto settings=incubator.settings();

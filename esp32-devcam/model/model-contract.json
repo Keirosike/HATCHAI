@@ -1,0 +1,19 @@
+{
+  "sha256": "4566b60fb3b81b1a15536a287ca5743e9696a2e1925b3d8db2abc66ad3ce697d",
+  "task": "binary_image_classification",
+  "input_shape": [1,160,160,3],
+  "color_order": "RGB",
+  "resize": "direct_bilinear_half_pixel",
+  "center_crop": false,
+  "normalization": "embedded_in_model",
+  "input_dtype": "int8",
+  "input_scale": 1.0,
+  "input_zero_point": -128,
+  "output_shape": [1,1],
+  "output_dtype": "int8",
+  "output_scale": 0.00390625,
+  "output_zero_point": -128,
+  "output_activation": "sigmoid",
+  "positive_class": "chick",
+  "threshold": 0.5
+}

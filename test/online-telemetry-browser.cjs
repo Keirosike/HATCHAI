@@ -1,5 +1,5 @@
 // Synthetic cloud data only. No real account, device, or notification access.
-const {chromium}=require('C:/Users/LENOVO/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core');
+const {chromium}=require(process.env.HATCH_PLAYWRIGHT_MODULE || 'playwright-core');
 const fs=require('fs'),path=require('path'),http=require('http'),assert=require('assert/strict');
 const root=path.resolve(__dirname,'../public'),id='87ce3cf3-a455-4bc3-a7bb-049882d985fa';let reads=0,stale=false;
 const server=http.createServer((req,res)=>{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep)||!fs.existsSync(file))return res.writeHead(404).end();res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.webp')?'image/webp':'text/html');res.end(fs.readFileSync(file));});

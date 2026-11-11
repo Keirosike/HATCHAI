@@ -41,9 +41,8 @@ queued runs/Stop, calibrated saved intervals/durations, direct sliders in both m
 Both-roller conflicts, editable day-18 turning end, rejected actions, firmware compatibility and responsive layouts.
 It also checks applying/resetting temperature calibration and failure feedback.
 
-Chrome and Playwright are required. On this workstation:
-
-    $env:HATCH_PLAYWRIGHT_MODULE='C:/Users/LENOVO/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright-core'
+Chrome and Playwright are required. Use the portable isolated tool setup at the
+end of this file; set HATCH_PLAYWRIGHT_MODULE to the installed local module.
 
 Optionally set `HATCH_UI_SCREENSHOT_DIR` for screenshots. The script reports the
 actual check count on completion. JavaScript syntax and asset-size checks must
@@ -89,3 +88,36 @@ Include sensor_sampling_compile_test.cpp with thermostat_compile_test.cpp and au
 Concurrent slider update: the production restart-dwell predicate is per motor (canStart), journals allow two live intents with independent ownership, and overlapping timer tests verify that a lower deadline leaves upper remaining time unchanged. Browser checks retain the existing sliders without combined buttons and verify each Stop leaves the peer ON. Earlier one-motor-at-a-time assumptions are superseded. Physical simultaneous motor load and SD/NVS power-cut tests remain unperformed.
 
 SHT40 version: include sht40_protocol_compile_test.cpp in the C++14 compiler checks. This checks the published CRC vector, independent temperature/RH corruption, frame length, conversion endpoints and RH clamping. Driver I2C presence/read-timeout paths require mocked transport or physical testing; compilation alone is not sensor validation.
+
+## Portable isolated dashboard/sync checks (new Windows laptop)
+
+Test dependencies are isolated under ignored dist; project package locks and SDKs
+are not changed. Existing installed Chrome is used headlessly.
+
+```powershell
+npm.cmd install --prefix dist/test-tools --no-save --package-lock=false --no-audit --no-fund playwright-core@1.56.1
+python -m pip install --target dist/test-tools/python ziglang==0.13.0
+$env:HATCH_PLAYWRIGHT_MODULE=(Resolve-Path dist/test-tools/node_modules/playwright-core).Path
+$env:HATCHAI_ZIG=(Resolve-Path dist/test-tools/python/ziglang/zig.exe).Path
+node tools/package-online-dashboard.mjs
+node --test test/dashboard-adapters.test.mjs test/telemetry-api.test.mjs test/incubator-read.test.mjs test/online-auth.test.mjs test/shared-dashboard-package.test.mjs
+node test/shared-dashboard-browser.cjs
+node test/shared-online-sprint.cjs
+node test/online-telemetry-browser.cjs
+node test/online-sync-recovery-browser.cjs
+node test/ui-regression.cjs
+node test/recovery-ui.cjs
+node test/cloud-recovery.cjs
+node test/prediction-model.cjs
+node test/notification-pairing/run.mjs
+```
+
+The new online recovery fixture intercepts every destination, aborts unexpected
+traffic, and uses synthetic account/telemetry data. It checks chart clearing after
+403 and network loss, live/stale/recovered readings, immediate owner refresh,
+private local batch preservation, honest online prediction availability, no token
+storage, bounded polling, and denied online hardware operations. Node tests also
+cover cache invalidation after denial, stale-session responses, and re-aging 304s.
+The compiler/model tests exercise real portable firmware code; they do not test
+GPIO, physical timing or biological hatch accuracy. Native cloud-recovery/model
+outputs now go to ignored dist/test-output, not tracked test/.build artifacts.

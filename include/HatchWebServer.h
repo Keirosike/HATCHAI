@@ -1,4 +1,5 @@
 #pragma once
+#include "CameraEventStore.h"
 
 #include <Arduino.h>
 #include <WebServer.h>
@@ -12,11 +13,13 @@ public:
   HatchWebServer(IncubatorController& controller, NetworkManager& network);
 
   void begin();
+  void attachCameraEvents(CameraEventStore* events){_cameraEvents=events;}
   void attachCloudSync(CloudSync* sync){_cloudSync=sync;}
   void handleClient();
-  void cameraSnapshot(int8_t& upper,int8_t& lower,bool& upperChick,bool& lowerChick)const {const auto now=millis();upper=!_cameras[0].known?-1:uint32_t(now-_cameras[0].seen)<20000?1:0;lower=!_cameras[1].known?-1:uint32_t(now-_cameras[1].seen)<20000?1:0;upperChick=upper==1&&_cameras[0].detector&&_cameras[0].chick;lowerChick=lower==1&&_cameras[1].detector&&_cameras[1].chick;}
+  void cameraSnapshot(int8_t& upper,int8_t& lower,bool& upperChick,bool& lowerChick)const {if(_cameraEvents&&_cameraEvents->active()){_cameraEvents->snapshot(upper,lower,upperChick,lowerChick);return;}const auto now=millis();upper=!_cameras[0].known?-1:uint32_t(now-_cameras[0].seen)<20000?1:0;lower=!_cameras[1].known?-1:uint32_t(now-_cameras[1].seen)<20000?1:0;upperChick=upper==1&&_cameras[0].detector&&_cameras[0].chick;lowerChick=lower==1&&_cameras[1].detector&&_cameras[1].chick;}
 
 private:
+  CameraEventStore* _cameraEvents=nullptr;
   CloudSync* _cloudSync=nullptr;
   void registerRoutes();
   void handleCameraEvent();

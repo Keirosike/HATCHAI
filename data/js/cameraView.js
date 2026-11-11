@@ -18,7 +18,7 @@ window.HatchCameraView=Object.freeze({mount(root,adapter){
  async function update(){if(dead||busy||document.hidden)return;busy=true;const ticket=generation;
   try{const data=await adapter.getStatus();if(dead||ticket!==generation)return;if(!data||!Array.isArray(data.cameras)||data.cameras.length>2)throw Error();
    const positions=new Set();for(const camera of data.cameras){if(!['upper','lower'].includes(camera.position)||positions.has(camera.position))throw Error();positions.add(camera.position);}
-   const records=(Array.isArray(data.captures)?data.captures:[]).slice(0,50).filter(r=>['upper','lower'].includes(r.position)&&typeof r.capturedAt==='string'&&Number.isFinite(Date.parse(r.capturedAt))&&typeof r.chick==='boolean');
+   const records=(Array.isArray(data.captures)?data.captures:[]).slice(0,50).filter(r=>['upper','lower'].includes(r.position)&&(typeof r.capturedAt==='string'&&Number.isFinite(Date.parse(r.capturedAt))||r.capturedAt===null&&r.timeSource==='unknown')&&typeof r.chick==='boolean');
    await Promise.all(panels.map(async panel=>{const item=data.cameras.find(c=>c.position===panel.dataset.position),frame=panel.querySelector('iframe'),placeholder=panel.querySelector('.camera-placeholder');
     panel.querySelector('.camera-status').textContent=item?.online===true?(item.detectorOk===false?'Detector unavailable':'Camera connected'):(item?.online===false?'Camera offline':'Unavailable');
     const url=item?.online===true?previewUrl(item.url):'';
@@ -31,7 +31,11 @@ window.HatchCameraView=Object.freeze({mount(root,adapter){
    }));
    if(dead||ticket!==generation)return;
    status.textContent=data.unassigned?'A legacy camera is connected without a verified Upper/Lower assignment.':adapter.preview==='captures'?'Cloud previews show the latest stored capture.':'The switch controls preview connections only.';
-   const gallery=root.querySelector('#cameraCaptures');gallery.replaceChildren();if(!records.length){const p=document.createElement('p');p.textContent='No verified capture records available.';gallery.append(p);}else for(const record of records){const article=document.createElement('article');article.textContent=(record.position==='upper'?'Upper Camera':'Lower Camera')+' / '+record.capturedAt+' / '+(record.chick?'Chick detected':'No chick detected');gallery.append(article);}
+   const queue=data.persistentQueue;if(queue&&typeof queue.ready==='boolean'&&typeof queue.fault==='boolean'&&Number.isInteger(queue.pending)&&Number.isInteger(queue.quarantined)&&Number.isInteger(queue.capacity)&&queue.capacity>0&&queue.capacity<=64&&queue.pending>=0&&queue.quarantined>=0&&queue.pending+queue.quarantined<=queue.capacity){
+    status.textContent+=!queue.ready||queue.fault?' Event storage unavailable; pending detections are retained.':queue.pending+queue.quarantined===queue.capacity?' Detection event queue full; pending detections are retained.':queue.pending?' '+queue.pending+' detection event(s) waiting for cloud synchronization.':'';
+    if(queue.quarantined)status.textContent+=' '+queue.quarantined+' event(s) need synchronization review.';
+   }
+   const gallery=root.querySelector('#cameraCaptures');gallery.replaceChildren();if(!records.length){const p=document.createElement('p');p.textContent='No verified capture records available.';gallery.append(p);}else for(const record of records){const article=document.createElement('article');article.textContent=(record.position==='upper'?'Upper Camera':'Lower Camera')+' / '+(record.capturedAt||'Time unavailable')+' / '+(record.chick?'Chick detected':'No chick detected');gallery.append(article);}
   }catch{if(!dead&&ticket===generation){stop();status.textContent='Camera status unavailable. Retrying automatically.';for(const p of panels)p.querySelector('.camera-status').textContent='Unavailable';}}
   finally{busy=false;if(!dead)timer=setTimeout(update,adapter.mode==='local'?5000:15000);}
  }

@@ -1,4 +1,5 @@
 #include "CloudSync.h"
+#include "CameraEventStore.h"
 #include "CloudSyncRecovery.h"
 #include "CloudApiCredentialStore.h"
 #include <Preferences.h>
@@ -61,7 +62,7 @@ String CloudSync::statusJson()const{return String("{\"configured\":")+(ready()?"
 void CloudSync::task(void* argument){static_cast<CloudSync*>(argument)->run();}
 void CloudSync::run(){
  HatchPairing::Credentials credentials;credentials.deviceId=HatchPairing::ControllerId;credentials.keyId=keyId_;credentials.keyLength=configured_?32:0;if(configured_)memcpy(credentials.key,key_,32);HatchPairing::erase(key_,sizeof(key_));
- HatchPairing::NotificationUtcClock clock;CloudSyncSample sample;EnrollmentRequest enrollment{};std::string event;HatchSync::Recovery recovery;uint32_t seenSync=UINT32_MAX;
+ HatchPairing::NotificationUtcClock clock;CloudSyncSample sample;EnrollmentRequest enrollment{};std::string event;HatchSync::Recovery recovery,cameraRecovery;bool cameraPaused=false;uint32_t seenSync=UINT32_MAX;
  for(;;){
   if(!configured_&&xQueueReceive(enrollmentQueue_,&enrollment,0)==pdTRUE){
    if(WiFi.status()!=WL_CONNECTED||!physicalTime(time(nullptr))){xQueueOverwrite(enrollmentQueue_,&enrollment);state_=1;vTaskDelay(pdMS_TO_TICKS(1000));continue;}
@@ -73,8 +74,28 @@ void CloudSync::run(){
    HatchPairing::erase(&staged,sizeof(staged));HatchPairing::erase(enrollment.token,sizeof(enrollment.token));body.clear();continue;
   }
   if(!configured_){state_=0;vTaskDelay(pdMS_TO_TICKS(500));continue;}
-  if(recovery.waiting(millis())){state_=4;vTaskDelay(pdMS_TO_TICKS(250));continue;}
+
   const uint64_t utc=time(nullptr);if(WiFi.status()!=WL_CONNECTED||!physicalTime(utc)){state_=1;vTaskDelay(pdMS_TO_TICKS(1000));continue;}uint32_t currentSync;portENTER_CRITICAL(&lock);currentSync=syncAt;portEXIT_CRITICAL(&lock);if(currentSync!=seenSync){clock.synchronize(utc,millis());seenSync=currentSync;}if(!clock.valid(utc,millis())){state_=1;vTaskDelay(pdMS_TO_TICKS(1000));continue;}
+  HatchCameraEvent::Event cameraEvent;
+  if(cameraEvents_&&!cameraPaused&&!cameraRecovery.waiting(millis())&&cameraEvents_->peek(cameraEvent)){
+   uint8_t cameraNonce[24];esp_fill_random(cameraNonce,sizeof(cameraNonce));StaticJsonDocument<1024> doc;
+   doc["deviceId"]=HatchPairing::ControllerId;doc["keyId"]=keyId_;doc["issuedAt"]=uint32_t(utc);doc["nonce"]=HatchPairing::base64url(cameraNonce,sizeof(cameraNonce));
+   auto eventDoc=doc.createNestedObject("event");eventDoc["cameraId"]=HatchCameraEvent::Ids[cameraEvent.camera];eventDoc["eventId"]=cameraEvent.id;eventDoc["incarnation"]=cameraEvent.incarnation;eventDoc["sequence"]=cameraEvent.sequence;
+   if(cameraEvent.detectedAt)eventDoc["detectedAt"]=cameraEvent.detectedAt;else eventDoc["detectedAt"]=nullptr;
+   if(cameraEvent.receivedAt)eventDoc["receivedAt"]=cameraEvent.receivedAt;else eventDoc["receivedAt"]=nullptr;
+   eventDoc["timeSource"]=cameraEvent.timeSource==1?"camera-utc":cameraEvent.timeSource==2?"controller-rtc":"unknown";eventDoc["confidence"]=cameraEvent.confidence;eventDoc["confirmed"]=true;
+   std::string body;serializeJson(doc,body);const std::string key=HatchPairing::base64url(credentials.key,credentials.keyLength);HatchPairing::NotificationHttpResponse response;
+   const bool received=post("/device/controller-camera-events",body,HatchPairing::ControllerId,keyId_,key.c_str(),response);bool ack=false;
+   if(received&&response.status==200){StaticJsonDocument<192> answer;if(!deserializeJson(answer,response.body.data(),response.length))ack=answer["accepted"]==true&&answer["eventId"].is<const char*>()&&!strcmp(answer["eventId"],cameraEvent.id);}
+   if(received&&response.status==409){cameraEvents_->finish(cameraEvent.id,false);cameraRecovery.reset();}
+   else {const auto action=cameraRecovery.complete(received,response.status,ack,response.retryAfterMs,esp_random(),millis());
+    if(action==HatchSync::Action::Acknowledge)cameraEvents_->finish(cameraEvent.id,true);
+    else if(action==HatchSync::Action::Discard)cameraEvents_->finish(cameraEvent.id,false);
+    else if(action==HatchSync::Action::Pause)cameraPaused=true;
+   }
+   vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if(recovery.waiting(millis())){state_=4;vTaskDelay(pdMS_TO_TICKS(250));continue;}
   if(xQueuePeek(queue_,&sample,pdMS_TO_TICKS(250))!=pdTRUE)continue;if(sample.capturedAt+604800ULL<utc){xQueueReceive(queue_,&sample,0);++dropped_;event.clear();recovery.reset();continue;}if(event.empty())event=randomId();state_=2;
   uint8_t nonce[24];esp_fill_random(nonce,sizeof(nonce));HatchPairing::TelemetryFrame frame;
   frame.capturedAt=sample.capturedAt;frame.valid=sample.valid;frame.temperatureCenti=sample.temperatureCenti;frame.humidityCenti=sample.humidityCenti;frame.sensorAgeMs=sample.sensorAgeMs;

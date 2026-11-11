@@ -16,3 +16,48 @@ test('two-second renders reuse a bounded five-second session cache and re-age st
  assert.equal((await reader('synthetic',id)).connection,'stale');assert.equal(calls,1);clock=5000;
  await reader('synthetic',id);assert.equal(calls,2);await reader('other-session',id);assert.equal(calls,3);
 });
+
+
+test('manual telemetry refresh bypasses cache but preserves conditional ownership checks',async()=>{
+ let calls=0,clock=0;
+ const reader=createTelemetryReader(false,async()=>{calls++;return Response.json(body());},()=>clock);
+ await reader('synthetic',id);clock=100;await reader('synthetic',id);assert.equal(calls,1);
+ await reader('synthetic',id,{force:true});assert.equal(calls,2);
+});
+
+
+test('authorization failure during forced refresh invalidates the prior telemetry cache',async()=>{
+ let calls=0,clock=0;
+ const reader=createTelemetryReader(false,async()=>{
+  calls++;return calls===1?Response.json(body()):new Response(null,{status:calls===2?403:503});
+ },()=>clock);
+ await reader('synthetic',id);clock=100;
+ await assert.rejects(()=>reader('synthetic',id,{force:true}),/Sign in again/);
+ clock=200;assert.equal(await reader('synthetic',id),null,'denied cached data must not reappear on the next poll');
+ assert.equal(calls,3);
+});
+
+
+test('late response from an old session cannot replace the current session cache',async()=>{
+ let release,calls=0;
+ const reader=createTelemetryReader(false,async(_url,options)=>{
+  calls++;
+  if(options.headers.Authorization==='Bearer old-session')await new Promise(resolve=>release=resolve);
+  const b=body();b.latest.sample.temperatureCenti=options.headers.Authorization==='Bearer new-session'?3800:3600;
+  return Response.json(b);
+ },()=>0);
+ const old=reader('old-session',id);await reader('new-session',id);release();await old;
+ assert.equal((await reader('new-session',id)).latest.sample.temperatureCenti,3800);assert.equal(calls,2);
+});
+
+test('conditional telemetry cache re-ages 304 responses and never treats them as a new capture',async()=>{
+ let clock=0,calls=0;
+ const reader=createTelemetryReader(false,async(_url,options)=>{
+  calls++;if(calls===1)return Response.json(body(),{headers:{ETag:'"synthetic-version"'}});
+  assert.equal(options.headers['If-None-Match'],'"synthetic-version"');return new Response(null,{status:304});
+ },()=>clock);
+ const first=await reader('synthetic',id);clock=16000;
+ assert.equal((await reader('synthetic',id)).connection,'stale');clock=96000;
+ const last=await reader('synthetic',id);assert.equal(last.online,false);
+ assert.equal(last.latest.capturedAt,first.latest.capturedAt);assert.equal(calls,3);
+});

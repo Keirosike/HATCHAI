@@ -1,3 +1,4 @@
+import {controllerCameraFetch} from './controller-camera-events.js';
 import {alertRepository,dispatchAlert} from './telemetry-alerts.js';
 import {cameraCapturesFetch,cleanupCaptures} from './camera-captures.js';
 
@@ -25,6 +26,7 @@ export default {
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if(url.pathname==='/device/controller-camera-events')return controllerCameraFetch(request,env);
     if(url.pathname==='/device/enroll'||url.pathname==='/online/device-enrollment')return deviceApiKeyFetch(request,env);
     if(url.pathname==='/device/camera-captures'||/^\/online\/incubators\/[^/]+\/captures(?:\/[^/]+)?$/.test(url.pathname))return cameraCapturesFetch(request,env);
     if(url.pathname==='/device/camera-events'||/^\/online\/incubators\/[^/]+\/camera-events$/.test(url.pathname))return cameraEventsFetch(request,env);

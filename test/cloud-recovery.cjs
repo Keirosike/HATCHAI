@@ -1,5 +1,5 @@
 // Tests the exact portable helpers used by the real controller/camera tasks.
-const fs=require('fs'),path=require('path'),cp=require('child_process');const root=path.resolve(__dirname,'..'),out=path.join(__dirname,'.build/cloud-recovery');fs.mkdirSync(out,{recursive:true});
+const fs=require('fs'),path=require('path'),cp=require('child_process');const root=path.resolve(__dirname,'..'),out=path.join(root,'dist/test-output/cloud-recovery');fs.mkdirSync(out,{recursive:true});
 fs.writeFileSync(path.join(out,'main.cpp'),`#include "CloudSyncRecovery.h"
 #include "camera_event_record.hpp"
 #include <cassert>
@@ -17,4 +17,4 @@ using namespace HatchCameraCloud;Event event;event.camera=1;event.capturedAt=179
 for(size_t n=0;n<RecordBytes;n++)assert(!decode(bytes,n,restored));for(size_t at=0;at<RecordBytes;at++){uint8_t damaged[RecordBytes];memcpy(damaged,bytes,RecordBytes);damaged[at]^=1;assert(!decode(damaged,RecordBytes,restored));}
 event.camera=0;assert(!encode(event,bytes));event.camera=2;assert(encode(event,bytes));assert(decode(bytes,sizeof(bytes),restored)&&restored.camera==2);event.camera=1;event.capturedAt=0;assert(!encode(event,bytes));event.capturedAt=1794096000;event.id[14]='3';assert(!encode(event,bytes));
 }`);
-const zig=path.join(root,'test/notification-pairing/.tools/ziglang/zig.exe'),exe=path.join(out,'checks.exe');cp.execFileSync(zig,['c++','-std=c++14','-O1','-Iinclude','-Iesp32-devcam/camera/main',path.join(out,'main.cpp'),'-o',exe],{cwd:root,stdio:'pipe',env:{...process.env,ZIG_GLOBAL_CACHE_DIR:path.join(out,'cache')}});cp.execFileSync(exe,[],{stdio:'inherit'});console.log('PASS: real telemetry recovery policy and camera persistent record helpers; lost ACK, long Retry-After, rollover, auth, truncation and every-byte corruption.');
+const zig=process.env.HATCHAI_ZIG||path.join(root,'test/notification-pairing/.tools/ziglang/zig.exe'),exe=path.join(out,'checks.exe');cp.execFileSync(zig,['c++','-std=c++14','-O1','-Iinclude','-Iesp32-devcam/camera/main',path.join(out,'main.cpp'),'-o',exe],{cwd:root,stdio:'pipe',env:{...process.env,ZIG_GLOBAL_CACHE_DIR:path.join(out,'cache')}});cp.execFileSync(exe,[],{stdio:'inherit'});console.log('PASS: real telemetry recovery policy and camera persistent record helpers; lost ACK, long Retry-After, rollover, auth, truncation and every-byte corruption.');

@@ -1,26 +1,14 @@
 idf_component_register(
-                    SRCS "camera.cpp" "fomo_detector.cpp" "camera_cloud.cpp"
-                    "../../../src/NotificationPairingProtocol.cpp" "../../../src/NotificationHttpParser.cpp"
-                    "../../../src/NotificationTransportResult.cpp" "../../../src/NotificationUtcClock.cpp"
-                    INCLUDE_DIRS "." "../../../include" "../../../.pio/libdeps/esp32dev/ArduinoJson/src"
-                    REQUIRES json mbedtls esp_http_client esp-tls esp_wifi esp_http_server esp_timer nvs_flash esp_driver_gpio lwip
-                    PRIV_INCLUDE_DIRS "$ENV{IDF_PATH}/components/esp-tls/private_include"
-                    PRIV_REQUIRES fomo
-                    EMBED_FILES "index.html")
-# SDK headers use legacy printf formats for 32-bit typedefs on this toolchain.
-# Scope compatibility options to the SDK adapter, not the camera application.
-set_source_files_properties("fomo_detector.cpp" PROPERTIES
-    COMPILE_OPTIONS "-std=gnu++17;-Wno-error=format")
-
-# Empty retains the existing unassigned camera. Provisioned ID must match this role.
-set(HATCHAI_CAMERA_POSITION "" CACHE STRING "Physical camera position: upper or lower")
-if(HATCHAI_CAMERA_POSITION STREQUAL "upper")
- target_compile_definitions(${COMPONENT_LIB} PRIVATE HATCHAI_CAMERA_UPPER)
-elseif(HATCHAI_CAMERA_POSITION STREQUAL "lower")
- target_compile_definitions(${COMPONENT_LIB} PRIVATE HATCHAI_CAMERA_LOWER)
-elseif(NOT HATCHAI_CAMERA_POSITION STREQUAL "")
- message(FATAL_ERROR "Camera position must be upper or lower")
+ SRCS "camera.cpp" "camera_local.cpp" "mobilenet_detector.cpp"
+ INCLUDE_DIRS "." "../../../include"
+ REQUIRES json esp_http_client esp_wifi esp_http_server esp_timer nvs_flash esp_driver_gpio lwip esp-dl esp-tflite-micro
+ EMBED_FILES "index.html" "../../model/mobilenetv2_full_int8.tflite")
+set_source_files_properties("mobilenet_detector.cpp" PROPERTIES COMPILE_OPTIONS "-std=gnu++17")
+# Both physical cameras use this exact target and binary. Placement is MAC/NVS state.
+file(SHA256 "${CMAKE_CURRENT_LIST_DIR}/../../model/mobilenetv2_full_int8.tflite" MODEL_SHA256)
+if(NOT MODEL_SHA256 STREQUAL "4566b60fb3b81b1a15536a287ca5743e9696a2e1925b3d8db2abc66ad3ce697d")
+ message(FATAL_ERROR "Camera model differs from reviewed INT8 contract")
 endif()
 
-# The shared legacy signer uses compact statements; retain its style warning.
-set_source_files_properties("../../../src/NotificationPairingProtocol.cpp" "../../../src/NotificationHttpParser.cpp" "../../../src/NotificationTransportResult.cpp" "../../../src/NotificationUtcClock.cpp" PROPERTIES COMPILE_OPTIONS "-Wno-error=misleading-indentation")
+# Emit stack reports without changing optimization or runtime behavior.
+target_compile_options(${COMPONENT_LIB} PRIVATE -fstack-usage)

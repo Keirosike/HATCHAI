@@ -49,3 +49,20 @@ test('initial authorized result is consumed once, missing records remain empty',
   assert.equal((await adapter.getData()).incubators[0].id, 'initial');
   assert.equal((await adapter.getData()).incubators.length, 0); assert.equal(calls, 1);
 });
+
+
+test('manual online refresh rechecks ownership before reading telemetry',async()=>{
+  let reads=0,telemetry=0,rows=[{id:'owned'}];
+  const adapter=online({accessToken:()=>'synthetic',initialIncubators:rows,selectedIncubator:()=>'owned',
+    readIncubators:async()=>{reads++;return rows;},readTelemetry:async()=>{telemetry++;return {online:true};}});
+  await adapter.getData();rows=[];
+  const result=await adapter.getData({force:true});
+  assert.equal(reads,1);assert.equal(result.incubators.length,0);
+  assert.equal(telemetry,1,'removed incubator must not read cached telemetry');assert.equal(result.synchronized,null);
+});
+
+test('online selection cannot read a record outside the verified ownership list',async()=>{
+  const adapter=online({accessToken:()=>'synthetic',initialIncubators:[{id:'owned'}],selectedIncubator:()=>'foreign',
+    readIncubators:async()=>assert.fail(),readTelemetry:async()=>assert.fail('foreign telemetry requested')});
+  assert.equal((await adapter.getData()).synchronized,null);
+});

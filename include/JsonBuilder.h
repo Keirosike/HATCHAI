@@ -5,7 +5,10 @@
 
 namespace HatchJson {
 
-inline String escape(const String& value) {
+// Keep one copy of JSON formatting helpers when LTO would duplicate them
+// at many dashboard/API call sites. Formatting and allocation behavior are unchanged.
+
+__attribute__((noinline)) inline String escape(const String& value) {
   String escaped;
   escaped.reserve(value.length() + 8);
 
@@ -32,15 +35,15 @@ inline String escape(const String& value) {
   return escaped;
 }
 
-inline String quote(const String& value) {
+__attribute__((noinline)) inline String quote(const String& value) {
   return String("\"") + escape(value) + "\"";
 }
 
-inline String boolValue(bool value) {
+__attribute__((noinline)) inline String boolValue(bool value) {
   return value ? "true" : "false";
 }
 
-inline String number(float value, unsigned int decimals = 1) {
+__attribute__((noinline)) inline String number(float value, unsigned int decimals = 1) {
   if (isnan(value) || isinf(value)) {
     return "null";
   }

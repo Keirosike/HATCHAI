@@ -36,7 +36,7 @@ export async function mountOnlineDashboard({auth,incubators,localWorker,onStatus
  let current=null,cameraCleanup=null,navbarCleanup=null,dead=false,busy=false,pending=null,selected=incubators[0].id;
  let notificationCleanup=await mountNotifications({auth,incubatorId:selected,localWorker,host:notifications});
  const readTelemetry=createTelemetryReader(localWorker);
- const adapter=()=>window.HatchDashboardAdapters.online({accessToken:()=>auth.accessToken(),readIncubators:token=>readIncubators(token,undefined,localWorker),initialIncubators:incubators,selectedIncubator:()=>selected,readTelemetry:(token,id)=>readTelemetry(token,id,localWorker)});
+ const adapter=()=>window.HatchDashboardAdapters.online({accessToken:()=>auth.accessToken(),readIncubators:token=>readIncubators(token,undefined,localWorker),initialIncubators:incubators,selectedIncubator:()=>selected,readTelemetry:(token,id,options)=>readTelemetry(token,id,options)});
  function restoreControls(){for(const {element,marker} of controls)marker.after(element);}
  function text(id,value){const element=host.querySelector('#'+id);if(element)element.textContent=value;}
  async function show(page){
@@ -53,6 +53,7 @@ export async function mountOnlineDashboard({auth,incubators,localWorker,onStatus
    }
    navbarCleanup=window.HatchApp.initNavbar();text('wifiStatus','Online account');
    if(page==='dashboard'){
+    host.querySelector('main .topbar').append(document.getElementById('refreshIncubator'));
     current=window.HatchDashboard.init({adapter:adapter(),onOnlineStatus:onStatus});await current.ready;
    }else{
     for(const control of host.querySelectorAll('input,select,textarea,button')){
@@ -75,7 +76,7 @@ export async function mountOnlineDashboard({auth,incubators,localWorker,onStatus
      preview.addEventListener('click',()=>{modal.classList.add('active');modal.setAttribute('aria-hidden','false');close.focus();});close.addEventListener('click',dismiss);modal.addEventListener('click',event=>{if(event.target===modal)dismiss();});modal.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dismiss();}if(event.key==='Tab'){event.preventDefault();close.focus();}});
     }
     if(page==='log'){for(const id of ['totalEvents','warningCount','criticalCount','lastSync'])text(id,'Unavailable');host.querySelector('#miniLogTable').replaceChildren();host.querySelector('#logTimeline').textContent='Cloud logs are not synchronized.';host.querySelector('main .badge').textContent='Unavailable';for(const note of host.querySelectorAll('.overview-grid .subtext'))note.textContent='Cloud records unavailable';}
-    if(page==='camera')cameraCleanup=window.HatchCameraView.mount(host,{mode:'online',preview:'captures',getCapture:record=>readCaptureImage(auth.accessToken(),selected,record.id,localWorker),getStatus:async()=>{const token=auth.accessToken();const [data,events,images]=await Promise.all([readTelemetry(token,selected,localWorker),readCameraEvents(token,selected,localWorker),readCaptures(token,selected,localWorker)]);const captures=images.length?images:events;const sample=data?.online?data.latest?.sample:null;return {cameras:sample?['upper','lower'].map(position=>({position,online:sample[position+'CameraOnline'],chick:sample[position+'Chick'],detectorOk:null})):[],captures};}});
+    if(page==='camera')cameraCleanup=window.HatchCameraView.mount(host,{mode:'online',preview:'captures',getCapture:record=>readCaptureImage(auth.accessToken(),selected,record.id,localWorker),getStatus:async()=>{const token=auth.accessToken();const [data,events,images]=await Promise.all([readTelemetry(token,selected),readCameraEvents(token,selected,localWorker),readCaptures(token,selected,localWorker)]);const captures=[...images,...events].sort((a,b)=>(Date.parse(b.capturedAt)||0)-(Date.parse(a.capturedAt)||0)).slice(0,50);const sample=data?.online?data.latest?.sample:null;return {cameras:sample?['upper','lower'].map(position=>({position,online:sample[position+'CameraOnline'],chick:sample[position+'Chick'],detectorOk:null})):[],captures};}});
     if(page==='settings'){
      text('accountDisplayName','Supabase account');text('espConnectedSsid','Unavailable online');text('wifiCardStatus','Hardware settings remain on the local ESP32 dashboard.');text('espWifiBadge','Unavailable');text('saveStatus','Online mode does not change local hardware settings.');text('wifiNetworkList','Wi-Fi scanning is available on the local dashboard.');
      host.querySelector('#notificationSettingsHost').append(notifications);

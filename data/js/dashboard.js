@@ -14,7 +14,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     if (disposed) return;
     disposed = true; clearTimeout(dashboardPollTimer); dashboardPredictionRequestId++;
     listeners.forEach(remove => remove()); activeInstance = null;
-  }, refresh: () => loadESP32Data() };
+  }, refresh: () => loadESP32Data(true) };
   activeInstance = instance;
   const DEGREE_C = "\u00B0C";
 
@@ -775,11 +775,11 @@ function init({ adapter, onOnlineStatus = () => {} }) {
 
 
 
-  async function loadESP32Data() {
+  async function loadESP32Data(force=false) {
     if (disposed || dashboardLoading || document.hidden) return;
     dashboardLoading = true;
     try {
-      const data = await dashboardRequest(() => adapter.getData());
+      const data = await dashboardRequest(() => adapter.mode==='online'?adapter.getData({force}):adapter.getData());
       if (disposed) return;
       if (adapter.mode === 'online') {
         renderOnline(data);
@@ -878,7 +878,12 @@ function init({ adapter, onOnlineStatus = () => {} }) {
   listen(window, "resize", renderCharts);
   return instance;
 
-  function clearOnline() {
+  function clearOnline(clearHistory=true) {
+    if (clearHistory) {
+      for (const range of Object.keys(chartDataSets)) chartDataSets[range]={labels:[],temperature:[],humidity:[]};
+      tempData=chartDataSets[currentRange].temperature;humidityData=chartDataSets[currentRange].humidity;chartLabels=chartDataSets[currentRange].labels;
+      lineHitboxes=[];activeTooltip=null;pinnedTooltip=false;
+    }
     const unknown = ['tempValue', 'humidityValue', 'relayValue', 'motorValue', 'hatchDayValue', 'hatchDateValue',
       'activeBatchValue', 'dashboardLaidDate', 'dashboardStartDate', 'dashboardExpectedHatch', 'dashboardBatchProgress',
       'summaryTemp', 'summaryHumidity', 'summaryRelay', 'summaryTurning', 'lastTurnValue', 'turnsTodayValue',
@@ -887,7 +892,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     // Unknown words use the existing status-value typography, not numeric sizing.
     ['tempValue','humidityValue'].forEach(id=>document.getElementById(id)?.classList.add('value-small'));
     ['temperatureReadingNote', 'humidityReadingNote', 'relayBadge', 'motorSubtext', 'chartStatus'].forEach(id => setText(id, 'Monitoring not connected yet'));
-    setText('wifiStatus', 'Online account');
+    setText('wifiStatus', 'Unavailable');
     setText('lastUpdated', 'Last synchronization: unavailable');
     setText('safetyBanner', 'Monitoring not connected yet. Safety and incubation controls remain local.');
     setText('onlineVerification', 'Account access is being checked.');
@@ -895,7 +900,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     renderCharts();
   }
   function renderOnline(data) {
-    clearOnline();
+    clearOnline(!data.synchronized);
     setText('onlineIncubatorInfo', data.incubators.length ? data.incubators.map(row => row.device_name + ' (' + row.device_id + ')').join(' · ') :
       'No incubator is available to this account. Check ownership and access policies.');
     setText('onlineVerification', data.incubators.length ? 'Authenticated incubator access verified.' : 'No authorized incubator returned.');
@@ -903,7 +908,7 @@ function init({ adapter, onOnlineStatus = () => {} }) {
     // This API does not provide a telemetry timestamp. Do not substitute fetch time.
     setText('lastUpdated', data.lastSyncedAt ? 'Last synchronization: ' + data.lastSyncedAt : 'Last synchronization: unavailable');
     const cloud=data.synchronized;
-    if(!cloud)return;
+    if(!cloud){setText('chartStatus','Telemetry unavailable');setText('safetyBanner','Cloud telemetry unavailable. Retrying automatically; hardware controls remain local.');return;}
     setText('wifiStatus',cloud.connection==='stale'?'Stale':cloud.online?'Online':'Offline');
     setText('safetyBanner',cloud.connection==='stale'?'Telemetry is stale; current readings are hidden. Hardware controls remain local.':cloud.online?'Cloud monitoring; hardware controls remain local.':'Incubator offline: readings are no longer current. Hardware controls remain local.');
     if(cloud.alerts?.length){const alert=cloud.alerts[0];setText('lastAnomalyValue',alert.kind.replaceAll('_',' ')+' · '+alert.status+' · '+new Date(alert.createdAt).toLocaleString());}
