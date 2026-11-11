@@ -95,3 +95,11 @@ MobileNetV2 is a whole-image presence classifier. Episode deduplication is per c
 All six `npm.cmd --prefix cloudflare-worker run test:runtime` harnesses passed after the final code changes: workerd/D1 pairing and ownership, hardening/races/retention, online authenticated reads, independent native-push decryption/signature verification, telemetry REST, and private camera captures. All upstreams were isolated; no production provider or database was contacted. Windows execution policy was retained; npm.cmd and explicit SDK executables were used.
 
 Hardware execution was not attempted. The [HatchAI debugging skill](../.codex/skills/debugging-and-code-review/SKILL.md) states: ?Never energize real outputs, change relay polarity, upload firmware, or alter live setpoints without explicit authorization and a safe test setup.? Target inference, PSRAM/task-stack high-water, power interruption recovery and live Android delivery require that supervised next stage.
+
+## 2026-11-12 preview freshness correction
+
+User screenshots show successful on-device invocation: chick probability 0.727, Invoke durations 2,150?2,833 ms, and approximately 3.1 MB free PSRAM. These are device-reported screenshot observations, not a controlled benchmark or verification of both board identities.
+
+The preview handler discarded classifications once the source frame was 2,000 ms old. Since invocation alone exceeded that limit, a positive completed classification was immediately omitted from X-Detections and the page said ?Waiting for fresh detection.? Both firmware and UI now use the existing 30-second link freshness window. Source-frame age remains visible; event confirmation, persistent episodes, authentication and control logic are unchanged. Embedded JavaScript syntax checks and the ESP-IDF rebuild/partition check passed. No device was flashed by the agent.
+
+Updated camera binary: 3,980,272 bytes; 214,032 bytes headroom; SHA-256 `d744cd9a3db6047e148ab3b9bd75f7397e4a2db934dfb2120611cd409b8c5020`. This supersedes the earlier camera artifact hash above.

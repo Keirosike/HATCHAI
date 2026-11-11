@@ -307,7 +307,8 @@ static esp_err_t capture_handler(httpd_req_t *req) {
   inference_ms = latest_inference_ms;
   detector_status = latest_status;
   age_ms = latest_captured ? (now - latest_captured) / 1000 : -1;
-  boxes = age_ms >= 0 && age_ms < 2000 ? latest_boxes : "[]";
+  // MobileNet inference can exceed two seconds; match the link freshness window.
+  boxes = age_ms >= 0 && age_ms < 30000 ? latest_boxes : "[]";
   xSemaphoreGive(result_mutex);
   char elapsed[24], age[24], capture_ms[24];
   snprintf(elapsed, sizeof(elapsed), "%lld", (long long)inference_ms);

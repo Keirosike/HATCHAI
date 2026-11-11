@@ -149,7 +149,7 @@ async function live(){
    const fps=previousFrameAt?`${(1000/(frameAt-previousFrameAt)).toFixed(1)} FPS`:'Measuring FPS…';
    previousFrameAt=frameAt;
    status.textContent=`${fps} · ${canvas.width}×${canvas.height} · ${transferMs} ms request · ${response.headers.get('X-Capture-Ms')||'?'} ms capture · ${response.headers.get('X-Inference-Ms')} ms AI · ${age<0?'AI warming up':age+' ms since detection frame'}`;
-   results.textContent=detections.length?detections.map(d=>`${d.name||('Class '+d.class)}: ${(d.score*100).toFixed(0)}%`).join(' | '):(age<0?'Preparing detector…':age>=2000?'Waiting for fresh detection…':'No chick classification above threshold');
+   results.textContent=detections.length?detections.map(d=>`${d.name||('Class '+d.class)}: ${(d.score*100).toFixed(0)}%`).join(' | '):(age<0?'Preparing detector…':age>=30000?'Waiting for fresh detection…':'No chick classification above threshold');
   }catch(error){previousFrameAt=0;status.textContent=error.message;await delay(1000);}
   // Video uses latest completed detections; classification can lag the current video frame.
   await delay(Math.max(0,previewFrameMs-(performance.now()-started)));
