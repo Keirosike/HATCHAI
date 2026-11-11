@@ -17,7 +17,9 @@ export function validateTelemetry(value,now){
 async function jsonBody(response,max=65536){const reader=response.body?.getReader();need(reader,503,'Synchronization unavailable');let size=0;const parts=[];for(;;){const p=await reader.read();if(p.done)break;size+=p.value.length;if(size>max){await reader.cancel();throw new ApiError(503,'Synchronization unavailable');}parts.push(p.value);}const data=new Uint8Array(size);let offset=0;for(const p of parts){data.set(p,offset);offset+=p.length;}try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}catch{throw new ApiError(503,'Synchronization unavailable');}}
 export function telemetryRepository(env,fetcher=fetch){return async(operation,args)=>{
  need(env.SUPABASE_URL==='https://dihufafcztqjuudjeqdm.supabase.co'&&/^sb_secret_[A-Za-z0-9_-]{8,200}$/.test(env.SUPABASE_BACKEND_KEY||''),503,'Synchronization unavailable');
- const r=await fetcher(env.SUPABASE_URL+'/rest/v1/rpc/hatchai_sync_'+operation,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{apikey:env.SUPABASE_BACKEND_KEY,'Content-Type':'application/json'},body:JSON.stringify(args)});
+ // API-key authentication belongs to the device migration; ingestion/read RPCs use the sync namespace.
+ const rpc=operation==='device_api_key_auth'?'hatchai_device_api_key_auth':'hatchai_sync_'+operation;
+ const r=await fetcher(env.SUPABASE_URL+'/rest/v1/rpc/'+rpc,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{apikey:env.SUPABASE_BACKEND_KEY,'Content-Type':'application/json'},body:JSON.stringify(args)});
  if(r.status===403)throw new ApiError(403,'Incubator access denied');if(r.status===409)throw new ApiError(409,'Synchronization conflict');need(r.ok,503,'Synchronization unavailable');return jsonBody(r);
 };}
 export async function telemetryFetch(request,env,dependencies={}){
